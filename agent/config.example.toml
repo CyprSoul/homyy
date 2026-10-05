@@ -61,3 +61,6 @@ enabled = true           # ігровий режим: у грі Хомі зві�
 voice_wake = false       # false — у грі взагалі не слухає мікрофон (кличеш Ctrl+Alt+H); true — слухає «Хооміі»
 processes = ["cs2.exe"]  # ігри, які завжди вважати грою (навіть у вікні)
 ignore = []              # програми на весь екран, які НЕ є грою (браузери й плеєри вже враховано)
+
+[obsidian]
+vault = ""               # шлях до сховища Obsidian, наприклад "C:/Users/igork/Documents/Obsidian Vault"

@@ -6,6 +6,8 @@ import os
 import sys
 import webbrowser
 from datetime import date, datetime
+from pathlib import Path
+from urllib.parse import quote_plus
 
 import requests
 
@@ -59,6 +61,13 @@ class Tools(PcTools):
                     "«що в мене на екрані», «що це за помилка», «переклади, що тут написано».",
                     {"question": {"type": "string", "description": "Що саме треба з'ясувати на екрані"}},
                     ["question"]),
+            _schema("search_on_site", "Відкрити в браузері пошук на сайті: youtube, google, rozetka, olx, "
+                    "wikipedia, youtube music, prom, steam, maps (карти).",
+                    {"site": {"type": "string"}, "query": {"type": "string"}}, ["site", "query"]),
+            _schema("notes_search", "Знайти в нотатках Obsidian користувача все про тему (його записи, плани, ідеї).",
+                    {"query": {"type": "string"}}, ["query"]),
+            _schema("notes_add", "Записати нотатку в Obsidian (у файл «Хомі.md» у сховищі нотаток).",
+                    {"text": {"type": "string"}}, ["text"]),
             _schema("open_website", "Відкрити сайт у браузері.",
                     {"url": {"type": "string", "description": "Повна адреса https://…"}}, ["url"]),
         ]
@@ -152,3 +161,61 @@ class Tools(PcTools):
         })
         r.raise_for_status()
         return r.json()["message"]["content"]
+
+    SEARCH_URLS = {
+        "youtube": "https://www.youtube.com/results?search_query={}",
+        "youtube music": "https://music.youtube.com/search?q={}",
+        "google": "https://www.google.com/search?q={}",
+        "rozetka": "https://rozetka.com.ua/ua/search/?text={}",
+        "olx": "https://www.olx.ua/uk/list/q-{}/",
+        "prom": "https://prom.ua/ua/search?search_term={}",
+        "wikipedia": "https://uk.wikipedia.org/w/index.php?search={}",
+        "steam": "https://store.steampowered.com/search/?term={}",
+        "maps": "https://www.google.com/maps/search/{}",
+    }
+    SITE_ALIASES = {"ютуб": "youtube", "гугл": "google", "розетка": "rozetka", "олх": "olx", "пром": "prom",
+                    "вікіпедія": "wikipedia", "стім": "steam", "карти": "maps", "ютуб музика": "youtube music"}
+
+    def _t_search_on_site(self, site: str, query: str) -> str:
+        key = site.lower().strip()
+        key = self.SITE_ALIASES.get(key, key)
+        url = self.SEARCH_URLS.get(key)
+        if not url:
+            return f"Не знаю, як шукати на «{site}». Вмію: {', '.join(self.SEARCH_URLS)}."
+        webbrowser.open(url.format(quote_plus(query)))
+        return f"Відкрила пошук «{query}» на {key}."
+
+    def _vault(self) -> Path | None:
+        v = self.cfg.get("obsidian", {}).get("vault", "")
+        return Path(v) if v and Path(v).is_dir() else None
+
+    def _t_notes_search(self, query: str) -> str:
+        vault = self._vault()
+        if not vault:
+            return "Нотатки Obsidian не підключені: вкажи шлях до сховища в config.toml, розділ [obsidian]."
+        words = [w for w in query.lower().split() if len(w) > 2] or [query.lower()]
+        hits = []
+        for f in vault.rglob("*.md"):
+            if ".obsidian" in f.parts or ".trash" in f.parts:
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            low = text.lower()
+            score = sum(low.count(w) for w in words) + 3 * sum(w in f.stem.lower() for w in words)
+            if score:
+                i = min((low.find(w) for w in words if w in low), default=0)
+                hits.append((score, f.relative_to(vault), text[max(0, i - 200):i + 600].strip()))
+        if not hits:
+            return f"У нотатках нічого про «{query}»."
+        hits.sort(key=lambda h: -h[0])
+        return "\n\n".join(f"Нотатка «{p}»:\n{snippet}" for _, p, snippet in hits[:3])
+
+    def _t_notes_add(self, text: str) -> str:
+        vault = self._vault()
+        if not vault:
+            return "Нотатки Obsidian не підключені: вкажи шлях до сховища в config.toml, розділ [obsidian]."
+        with open(vault / "Хомі.md", "a", encoding="utf-8") as f:
+            f.write(f"\n- {datetime.now():%Y-%m-%d %H:%M} — {text.strip()}")
+        return "Записала в нотатку «Хомі»."

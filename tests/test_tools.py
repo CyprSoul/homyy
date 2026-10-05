@@ -22,3 +22,19 @@ def test_example_config_parses():
     from agent.config import AGENT_DIR, load_config
     cfg = load_config(AGENT_DIR / "config.example.toml")
     assert cfg["apps"]["блокнот"] == "notepad.exe" and cfg["wake"]["min_seconds"] == 0.6
+
+
+def test_obsidian_notes(tmp_path):
+    (tmp_path / "Тренування.md").write_text("План: присідання 3x15, віджимання 3x10.", encoding="utf-8")
+    t = Tools({**CFG, "obsidian": {"vault": str(tmp_path)}})
+    assert "присідання" in t.call("notes_search", {"query": "тренування"})
+    assert "Записала" in t.call("notes_add", {"text": "купити протеїн"})
+    assert "купити протеїн" in (tmp_path / "Хомі.md").read_text(encoding="utf-8")
+    assert "не підключені" in Tools(CFG).call("notes_search", {"query": "x"})
+
+
+def test_search_on_site(monkeypatch):
+    opened = []
+    monkeypatch.setattr("webbrowser.open", opened.append)
+    assert "rozetka" in Tools(CFG).call("search_on_site", {"site": "розетка", "query": "навушники"})
+    assert opened == ["https://rozetka.com.ua/ua/search/?text=%D0%BD%D0%B0%D0%B2%D1%83%D1%88%D0%BD%D0%B8%D0%BA%D0%B8"]
