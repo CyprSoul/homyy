@@ -15,6 +15,14 @@ class Speaker:
         self.cfg = cfg["tts"]
         self.audio = audio
         self.pool = ThreadPoolExecutor(max_workers=3)
+        self.cache: dict[str, np.ndarray] = {}
+
+    def say_cached(self, phrase: str):
+        """Коротка фраза («Так?»), синтезована один раз — звучить миттєво."""
+        if phrase not in self.cache:
+            self.cache[phrase] = self._synth(phrase)
+        self.audio.play(self.cache[phrase], RATE)
+        self.audio.drain()
 
     def _synth(self, sentence: str) -> np.ndarray:
         r = requests.post(self.cfg["url"], timeout=30,

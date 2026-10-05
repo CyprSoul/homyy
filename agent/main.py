@@ -26,23 +26,33 @@ def check_services(cfg: dict):
         log("!", "Немає API-ключа Open WebUI — спільна пам'ять вимкнена.")
 
 
+def sleep(audio):
+    audio.beep(up=False)
+    log("💤", "Сплю. Щоб покликати — «Хооміі».")
+
+
 def conversation(cfg, audio, stt, brain, speaker):
     w = cfg["wake"]
-    audio.beep(up=True)
+    try:
+        speaker.say_cached("Так?")          # чітко чути: Хомі прокинулась і слухає
+    except requests.RequestException:
+        audio.beep(up=True)
     timeout = float(w.get("follow_up_seconds", 8))
     while True:
+        log("🎙️", f"Слухаю… (говори, у тебе {timeout:.0f} с)")
         seg = audio.listen(end_silence_ms=900, max_seconds=25, start_timeout_s=timeout)
         if seg is None:
-            audio.beep(up=False)
-            log("Хомі", "(слухаю «Хоооуммміііі» далі)")
+            sleep(audio)
             return
+        log("…", "розбираю, що ти сказав")
         text = stt.command(seg[0])
         if is_noise(text) or is_wake(text, 9.0, 0.0, 2):   # шум або просто повторене «Хомі»
             continue
         log("Ти", text)
         if is_stop(text):
-            audio.beep(up=False)
+            sleep(audio)
             return
+        log("🤔", "Думаю…")
         try:
             answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
         except requests.RequestException as e:
@@ -53,6 +63,7 @@ def conversation(cfg, audio, stt, brain, speaker):
             speaker.say(answer)
         except requests.RequestException as e:
             log("помилка голосу", str(e))
+        audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
         timeout = float(w.get("follow_up_seconds", 8))
 
 
@@ -74,7 +85,8 @@ def main():
     w = cfg["wake"]
     min_s, max_words = float(w.get("min_seconds", 1.0)), int(w.get("max_words", 3))
 
-    log("Хомі", "Готова! Скажи протяжно «Хоооуммміііі». Вийти — Ctrl+C.")
+    log("Хомі", "Готова! Поклич мене: «Хооміі». Вийти — Ctrl+C.")
+    log("💤", "Сплю. Щоб покликати — «Хооміі».")
     while True:
         seg = audio.listen(end_silence_ms=500, max_seconds=4)
         pcm, speech_s = seg
