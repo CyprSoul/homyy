@@ -9,6 +9,7 @@ foreach ($dir in @([Environment]::GetFolderPath("Startup"), [Environment]::GetFo
   $s.Arguments = "-m agent"
   $s.WorkingDirectory = $repo
   $s.Description = "Хомі — голосова помічниця"
+  $s.IconLocation = (Join-Path $repo "agent\assets\homyy.ico") + ",0"
   $s.Save()
 }
 Write-Host "Готово! Хомі запускатиметься разом із Windows без вікна терміналу. Ярлик «Хомі» є й на Робочому столі."

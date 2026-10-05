@@ -269,6 +269,11 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
                 QApplication.quit()
 
     app = QApplication([])
+    from pathlib import Path
+    from PySide6.QtGui import QIcon
+    icon = Path(__file__).resolve().parent / "assets" / "homyy.ico"
+    if icon.exists():
+        app.setWindowIcon(QIcon(str(icon)))
     orb = Orb()
     orb.show()
     app.exec()
