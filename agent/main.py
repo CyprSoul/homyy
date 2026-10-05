@@ -178,8 +178,10 @@ def _feed_levels(orb, audio):
 def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     wait_for_ollama(cfg)
     check_services(cfg)
-    log("…", "завантажую Gemma у відеокарту наперед")
-    _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
+    # Порядок важливий: спершу звільняємо відеокарту, потім кладемо туди Whisper, і лише потім
+    # Gemma — тоді Ollama бачить, скільки місця реально лишилось, і не «переповнює» відеопам'ять
+    # (інакше Windows виносить частину в звичайну пам'ять і відповідь іде хвилину).
+    _ollama_keep(cfg, 0)
 
     from .audio import Audio
     from .brain import Brain
@@ -187,6 +189,8 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     from .tts import Speaker
 
     stt = STT(cfg)
+    log("…", "завантажую Gemma у відеокарту наперед")
+    _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
     audio = Audio(cfg)
     brain = Brain(cfg)
     speaker = Speaker(cfg, audio)
