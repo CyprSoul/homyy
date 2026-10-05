@@ -92,6 +92,8 @@
 - [x] Підключити ComfyUI до Open WebUI (workflow у форматі API, [`config/comfyui/`](config/comfyui/)) → пункт 8. Малювання з чату Хомі працює (~25–30 с, коли поруч Gemma). ComfyUI відкривати лише коли треба малювати
 
 ### Етап 7. Інтеграції 🔗
+> Відкладено: робимо разом з етапом 8, бо більшість інтеграцій — це код, який пишемо разом.
+
 Сервіси господаря: Gmail, Notion, Obsidian, Нотатки Apple, Telegram, Viber, WhatsApp, Signal, Discord, YouTube / YouTube Music / Apple Music, Google Перекладач, DeepL, Monobank, Steam, Epic Games, Xiaomi, iPhone.
 
 Кандидати (вибрати й упорядкувати):
