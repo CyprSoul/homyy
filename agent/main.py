@@ -61,8 +61,17 @@ def check_services(cfg: dict):
             log("✓", name)
         except requests.RequestException:
             log("✗", f"{name} недоступний ({url}). Запусти Docker / Ollama.")
-    if not cfg.get("openwebui", {}).get("api_key"):
+    ow = cfg.get("openwebui", {})
+    if not ow.get("api_key"):
         log("!", "Немає API-ключа Open WebUI — спільна пам'ять вимкнена.")
+        return
+    try:
+        r = requests.get(f"{ow['url']}/api/v1/memories/", timeout=5,
+                         headers={"Authorization": f"Bearer {ow['api_key']}"})
+        r.raise_for_status()
+        log("✓", f"Спільна пам'ять: {len(r.json())} записів")
+    except requests.RequestException as e:
+        log("✗", f"Спільна пам'ять недоступна: {e}")
 
 
 def sleep(audio):
