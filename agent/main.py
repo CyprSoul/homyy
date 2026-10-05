@@ -89,7 +89,7 @@ def check_services(cfg: dict):
 
 def sleep(audio):
     audio.beep(up=False)
-    ui.set_state("sleep")
+    ui.set_state("game" if game_mode else "sleep")
     log("💤", "Сплю. Щоб покликати — «Хооміі» або клік по кульці.")
 
 
@@ -215,7 +215,7 @@ def enter_game_mode(cfg, stt):
     _ollama_keep(cfg, 0)
     stt.release_gpu()
     set_low_priority(True)
-    ui.set_visible(False)
+    ui.set_state("game")                 # сфера стає напівпрозорим джойстиком, крізь який клікається
 
 
 def exit_game_mode(cfg, stt):
@@ -227,7 +227,6 @@ def exit_game_mode(cfg, stt):
     if cfg["stt"].get("device", "auto") in ("auto", "cuda"):
         stt.load_gpu()
     _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
-    ui.set_visible(True)
     ui.set_state("sleep")
 
 
@@ -236,6 +235,7 @@ def _feed_levels(orb, audio):
     щоб уві сні вона не смикалась від кожного звуку (Discord, музика, розмови поруч)."""
     while True:
         orb.set_level(audio.level() if ui.state in ("listen", "speak") else 0.0)
+        time.sleep(0.2 if ui.state == "game" else 0)
         time.sleep(0.05)
 
 
@@ -270,7 +270,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     sleep_state_logged = False
     while True:
         if not sleep_state_logged:
-            ui.set_state("sleep")
+            ui.set_state("game" if game_mode else "sleep")
             log("💤", "Сплю. Щоб покликати — «Хооміі» або клік по кульці.")
             sleep_state_logged = True
         if paused.is_set():

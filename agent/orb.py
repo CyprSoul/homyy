@@ -19,6 +19,7 @@ STATES = {
     "speak":  ((34, 197, 94), 1.3, 0.05, ""),
     "error":  ((239, 68, 68), 0.8, 0.03, "Щось не так"),
     "paused": ((75, 78, 92), 0.2, 0.01, "Пауза · не слухаю"),
+    "game":   ((148, 163, 184), 0.3, 0.0, ""),
 }
 W, H = 150, 168
 R = 40            # радіус сфери
@@ -26,7 +27,7 @@ R = 40            # радіус сфери
 
 def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
     from PySide6.QtCore import QPointF, Qt, QTimer
-    from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QRadialGradient
+    from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QRadialGradient
     from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
     def qc(rgb, a=255, k=1.0, white=0.0):
@@ -54,12 +55,23 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             self.timer.timeout.connect(self.step)
             self.timer.start(16)
 
+        def set_game_look(self, game: bool):
+            """У грі: напівпрозорий джойстик, кліки проходять крізь нього в гру, мало кадрів."""
+            if game == getattr(self, "_game_look", False):
+                return
+            self._game_look = game
+            self.setWindowOpacity(0.45 if game else 1.0)
+            self.setWindowFlag(Qt.WindowTransparentForInput, game)
+            self.timer.setInterval(200 if game else 16)
+            self.show()                       # після зміни прапорців вікно треба показати знову
+
         # ---- дані від голосової Хомі ----------------------------------
         def step(self):
             try:
                 while True:
                     kind, value = cmd_q.get_nowait()
                     if kind == "state" and value in STATES:
+                        self.set_game_look(value == "game")
                         self.state = value
                     elif kind == "level":
                         self.level += (min(1.0, value) - self.level) * 0.5
@@ -88,9 +100,32 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
                 self.update()
 
         # ---- малювання ------------------------------------------------
+        def paint_gamepad(self, p):
+            cx, cy = W / 2, R + 30
+            body = QPainterPath()
+            body.addRoundedRect(cx - 34, cy - 16, 68, 32, 16, 16)
+            body.addEllipse(QPointF(cx - 24, cy + 12), 12, 12)
+            body.addEllipse(QPointF(cx + 24, cy + 12), 12, 12)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(30, 34, 44, 230))
+            p.drawPath(body.simplified())
+            p.setPen(QPen(QColor(203, 213, 225), 4, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(QPointF(cx - 28, cy), QPointF(cx - 14, cy))          # хрестовина
+            p.drawLine(QPointF(cx - 21, cy - 7), QPointF(cx - 21, cy + 7))
+            p.setPen(Qt.NoPen)
+            for dx, dy, col in ((17, -5, (34, 197, 94)), (25, 2, (239, 68, 68)), (9, 2, (59, 130, 246)),
+                                (17, 9, (245, 158, 11))):
+                p.setBrush(QColor(*col))
+                p.drawEllipse(QPointF(cx + dx, cy + dy), 3.2, 3.2)
+            p.setBrush(QColor(139, 92, 246))                              # фіолетовий вогник Хомі
+            p.drawEllipse(QPointF(cx, cy - 6), 2.6, 2.6)
+
         def paintEvent(self, _):
             p = QPainter(self)
             p.setRenderHint(QPainter.Antialiasing)
+            if self.state == "game":
+                self.paint_gamepad(p)
+                return
             t, lvl, col = self.phase, self.level, self.color
             cx, cy = W / 2, R + 30
             breath = 0.5 + 0.5 * math.sin(t * 1.3)
