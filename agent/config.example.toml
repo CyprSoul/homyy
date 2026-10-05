@@ -30,14 +30,9 @@ input_device = ""        # порожньо = мікрофон за замовч
 vad_aggressiveness = 2   # 0..3, більше = суворіше відсікає шум
 
 [tts]
-# Основний голос — локальний український StyleTTS2 (docs/voice.md), обрала господар: Інна Гелевера.
-url = "http://localhost:8003/v1/audio/speech"
-model = "multi"
-voice = "Інна Гелевера"
-speed = 1.0
-
-[tts.fallback]
-# Запасний — Поліна (Microsoft, онлайн), якщо контейнер StyleTTS2 не запущений.
+# Поки що — Поліна (Microsoft, онлайн). Коли обереш голос StyleTTS2 (docs/voice.md), заміни на:
+#   url = "http://localhost:8003/v1/audio/speech"   model = "multi"   voice = "<ім'я голосу>"   speed = 1.0
+# і перенеси Поліну в [tts.fallback] як запасний голос.
 url = "http://localhost:5050/v1/audio/speech"
 model = "tts-1"
 api_key = "homyy"
