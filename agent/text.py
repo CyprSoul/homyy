@@ -130,3 +130,14 @@ def is_pause(transcript: str) -> bool:
     """«Не слухай», «не підслуховуй» — пауза до кліку чи «Продовжити» в меню сфери."""
     t = collapse(transcript).replace("'", "")
     return "не слухай" in t or "не підслуховуй" in t
+
+
+_YES = {"так", "ага", "угу", "давай", "звісно", "звичайно", "підтверджую", "можна", "впевнений", "точно", "yes"}
+
+
+def is_yes(transcript: str) -> bool:
+    """Коротка згода: «так», «так, давай», «ага». Заперечення («ні», «не треба») — ні."""
+    words = collapse(transcript).replace("'", "").split()
+    if not words or len(words) > 5 or any(w in ("ні", "не", "стоп", "скасуй") for w in words):
+        return False
+    return any(w in _YES for w in words)

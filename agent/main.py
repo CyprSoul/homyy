@@ -278,6 +278,13 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     audio = Audio(cfg)
     brain = Brain(cfg)
     speaker = Speaker(cfg, audio)
+
+    def remind(text: str):
+        log("⏰", text)
+        audio.beep(up=True)
+        speak(speaker, audio, text)
+        ui.set_state("game" if game_mode else "sleep")
+    brain.tools.on_reminder = remind
     if orb is not None:
         threading.Thread(target=_feed_levels, args=(orb, audio), daemon=True).start()
     threading.Thread(target=_watch_games, args=(cfg,), daemon=True).start()

@@ -9,6 +9,7 @@ from datetime import date, datetime
 
 import requests
 
+from .pctools import PcTools
 from .text import date_diff, ukr_date
 
 # Віртуальні клавіші Windows для медіа.
@@ -22,13 +23,16 @@ def _schema(name, description, properties=None, required=None):
         "parameters": {"type": "object", "properties": properties or {}, "required": required or []}}}
 
 
-class Tools:
+class Tools(PcTools):
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.apps = {k.lower(): v for k, v in cfg.get("apps", {}).items()}
 
     # ---- опис для моделі -------------------------------------------------
     def schemas(self) -> list[dict]:
+        return self.base_schemas() + self.pc_schemas(_schema)
+
+    def base_schemas(self) -> list[dict]:
         apps = ", ".join(self.apps) or "немає"
         return [
             _schema("current_datetime", "Поточні дата й час."),
