@@ -4,6 +4,7 @@
 """
 import os
 import random
+import socket
 import sys
 import threading
 import time
@@ -206,10 +207,28 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
             log("не те", f"«{heard}» ({speech_s:.1f} с)")   # підказка для налаштування min_seconds
 
 
+_instance_lock = None
+
+
+def single_instance() -> bool:
+    """Лише одна Хомі на ПК: друга копія (наприклад, з автозапуску) тихо виходить."""
+    global _instance_lock
+    _instance_lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _instance_lock.bind(("127.0.0.1", 47811))
+        return True
+    except OSError:
+        return False
+
+
 def main():
     global ui
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    if not single_instance():
+        log("!", "Хомі вже запущена (дивись сферу в кутку екрана). Цю копію закриваю.")
+        time.sleep(3)
+        return
     cfg = load_config()
     wake_click = threading.Event()
 
