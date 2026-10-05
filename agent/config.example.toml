@@ -30,6 +30,9 @@ input_device = ""        # порожньо = мікрофон за замовч
 vad_aggressiveness = 2   # 0..3, більше = суворіше відсікає шум
 
 [tts]
+# Поліна (Microsoft, онлайн). Локальний український голос StyleTTS2 — див. docs/voice.md:
+#   url = "http://localhost:8003/v1/audio/speech", model = "multi", voice = "<обраний голос>"
+model = "tts-1"
 url = "http://localhost:5050/v1/audio/speech"
 api_key = "homyy"
 voice = "uk-UA-PolinaNeural"

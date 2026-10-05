@@ -1,0 +1,31 @@
+# Український голос StyleTTS2 (локально, на процесорі) з OpenAI-сумісним API.
+# Запуск: cd C:\homyy\repo\config\tts-uk ; docker compose up -d
+# API: http://localhost:8003/v1/audio/speech   Голоси: http://localhost:8003/v1/audio/voices
+services:
+  api:
+    image: ghcr.io/alertua/styletts2-ukrainian-openai-tts-api:latest
+    container_name: tts_uk_api
+    restart: always
+    env_file: .env
+    ports:
+      - "8003:8003"
+    depends_on:
+      gradio:
+        condition: service_healthy
+
+  gradio:
+    image: ghcr.io/alertua/patriotyk_styletts2_ukrainian_docker:latest
+    container_name: tts_uk_gradio
+    restart: always
+    env_file: .env
+    volumes:
+      - tts_uk_data:/data
+    healthcheck:
+      test: python -c "import sys, http.client; c=http.client.HTTPConnection('127.0.0.1', 7860, timeout=5); c.request('HEAD', '/'); r=c.getresponse(); sys.exit(0 if r.status==200 else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 3s
+      retries: 200
+
+volumes:
+  tts_uk_data:

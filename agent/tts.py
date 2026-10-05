@@ -27,7 +27,7 @@ class Speaker:
     def _synth(self, sentence: str) -> np.ndarray:
         r = requests.post(self.cfg["url"], timeout=30,
                           headers={"Authorization": f"Bearer {self.cfg.get('api_key', '')}"},
-                          json={"model": "tts-1", "input": sentence, "voice": self.cfg["voice"],
+                          json={"model": self.cfg.get("model", "tts-1"), "input": sentence, "voice": self.cfg["voice"],
                                 "speed": float(self.cfg.get("speed", 1.0)), "response_format": "mp3"})
         r.raise_for_status()
         decoded = miniaudio.decode(r.content, output_format=miniaudio.SampleFormat.SIGNED16,
