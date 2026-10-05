@@ -371,7 +371,9 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
             else:
                 heard = stt.wake(pcm)
                 # обидві перевірки: звучить як твоє «Хооміі» І текст схожий на «Хомі»
-                woke = score >= detector.threshold and is_wake(heard, speech_s, 0.0, max_words)
+                # або: майже дотягує до порогу, але Whisper чітко чує протяжне «Хомі» — теж ти
+                woke = ((score >= detector.threshold and is_wake(heard, speech_s, 0.0, max_words))
+                        or (score >= detector.threshold * 0.8 and is_wake(heard, speech_s, min_s, max_words)))
             log("почула" if woke else "не те",
                 f"«{heard or 'Хооміі'}» ({speech_s:.1f} с, схожість {score:.2f}, вирішила за {time.time() - t0:.2f} с)")
         else:

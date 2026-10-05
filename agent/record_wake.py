@@ -1,6 +1,7 @@
 """Запис зразків і навчання персонального детектора «Хооміі».
 
 Запуск:  .venv\\Scripts\\python -m agent.record_wake          — записати й навчити
+         .venv\\Scripts\\python -m agent.record_wake --more   — лише дописати 30 «Хооміі» (без пасток)
          .venv\\Scripts\\python -m agent.record_wake --train  — лише перенавчити на вже записаному
 Записи лишаються на ПК у agent\\wake_data. Повторний запуск ДОДАЄ нові записи до старих.
 """
@@ -49,7 +50,7 @@ def record(audio, prompt: str, kind: str, timeout: float = 8.0) -> bool:
     return True
 
 
-def collect(cfg):
+def collect(cfg, only_positive: bool = False):
     from .audio import Audio
     audio = Audio(cfg)
     print("\n=== 1/3. Твоє «Хооміі» ===")
@@ -58,6 +59,8 @@ def collect(cfg):
     n = 0
     while n < POSITIVES:
         n += record(audio, f"[{n + 1}/{POSITIVES}] Скажи «Хооміі»", "positive")
+    if only_positive:
+        return
 
     print("\n=== 2/3. Слова-пастки (схожі, але НЕ виклик) ===")
     for i, phrase in enumerate(TRAPS, 1):
@@ -92,7 +95,7 @@ def train():
     print(f"Готово! Поріг {stats['threshold']:.2f}. На перевірці: впізнаю твоє «Хооміі» в "
           f"{stats['positives_ok']:.0%} випадків, відкидаю чужі звуки в {stats['negatives_rejected']:.0%}.")
     if stats["positives_ok"] < 0.8:
-        print("Порада: запиши ще 20–30 «Хооміі» (запусти програму ще раз) — стане точніше.")
+        print("Порада: допиши ще 30 «Хооміі» — стане точніше:  .venv\\Scripts\\python -m agent.record_wake --more")
 
 
 def main():
@@ -100,7 +103,7 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8")
     if "--train" not in sys.argv:
         from .config import load_config
-        collect(load_config())
+        collect(load_config(), only_positive="--more" in sys.argv)
     train()
     print("\nПерезапусти Хомі, щоб вона почала користуватися детектором.")
 
