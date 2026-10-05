@@ -57,11 +57,16 @@ class Brain:
 
     def _chat(self, messages: list[dict]) -> dict:
         o = self.cfg["ollama"]
-        r = requests.post(f"{o['url']}/api/chat", timeout=300, json={
+        payload = {
             "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
             "stream": False, "think": False, "keep_alive": o.get("keep_alive", "30m"),
             "options": {"num_ctx": o.get("num_ctx", 32768), "temperature": o.get("temperature", 0.4)},
-        })
+        }
+        for attempt in range(2):   # перший запит після простою іноді падає, поки модель вантажиться
+            r = requests.post(f"{o['url']}/api/chat", timeout=300, json=payload)
+            if r.status_code < 500 or attempt == 1:
+                break
+            time.sleep(3)
         r.raise_for_status()
         return r.json()["message"]
 

@@ -37,7 +37,7 @@ def conversation(cfg, audio, stt, brain, speaker):
             log("Хомі", "(слухаю «Хоооуммміііі» далі)")
             return
         text = stt.command(seg[0])
-        if is_noise(text):
+        if is_noise(text) or is_wake(text, 9.0, 0.0, 2):   # шум або просто повторене «Хомі»
             continue
         log("Ти", text)
         if is_stop(text):

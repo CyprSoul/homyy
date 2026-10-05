@@ -21,4 +21,4 @@ def test_unknown_and_safe_failures():
 def test_example_config_parses():
     from agent.config import AGENT_DIR, load_config
     cfg = load_config(AGENT_DIR / "config.example.toml")
-    assert cfg["apps"]["блокнот"] == "notepad.exe" and cfg["wake"]["min_seconds"] == 1.0
+    assert cfg["apps"]["блокнот"] == "notepad.exe" and cfg["wake"]["min_seconds"] == 0.6
