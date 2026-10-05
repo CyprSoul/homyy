@@ -91,8 +91,21 @@
 - [x] 16 ГБ VRAM на двох: ComfyUI тримає модель у пам'яті, і Gemma не може завантажитись (Ollama падає з CUDA error). Рішення — [`scripts/comfy-autofree.ps1`](scripts/comfy-autofree.ps1) в автозапуску: звільняє VRAM через 30 с простою ComfyUI
 - [x] Підключити ComfyUI до Open WebUI (workflow у форматі API, [`config/comfyui/`](config/comfyui/)) → пункт 8. Малювання з чату Хомі працює (~25–30 с, коли поруч Gemma). ComfyUI відкривати лише коли треба малювати
 
-### Етап 7. Пошта й календар 📅
-- [ ] Підключити Gmail / Google Calendar (або Outlook) через інструменти Open WebUI → пункт 11
+### Етап 7. Інтеграції 🔗
+Сервіси господаря: Gmail, Notion, Obsidian, Нотатки Apple, Telegram, Viber, WhatsApp, Signal, Discord, YouTube / YouTube Music / Apple Music, Google Перекладач, DeepL, Monobank, Steam, Epic Games, Xiaomi, iPhone.
+
+Кандидати (вибрати й упорядкувати):
+- [ ] 📓 Obsidian → база знань Хомі (нотатки як джерело відповідей)
+- [ ] 💬 Telegram-бот «Хомі» (текст і голосові з будь-якого місця)
+- [ ] 🍎 iPhone: швидка команда Siri «Хомі» через Shortcuts і API Open WebUI
+- [ ] 💳 Monobank: витрати за період (офіційний особистий API, лише читання)
+- [ ] 📧 Gmail: короткий огляд важливих листів (лише читання)
+- [ ] 📝 Notion: читати/додавати сторінки й нотатки
+- [ ] 🔤 DeepL API для найякіснішого перекладу (за бажанням)
+- [ ] 🏠 Xiaomi: розумні пристрої (уточнити, які)
+
+Не підключаємо: Viber, WhatsApp, Signal (немає офіційного API, ризик блокування акаунта), Нотатки Apple (немає доступу з Windows).
+Музика, YouTube, Steam і Epic Games — через керування Windows на етапі 8 (медіаклавіші, запуск ігор).
 
 ### Етап 8. Справжня Хомі: власний застосунок 🖥️ (програмуємо разом)
 Окрема програма на Python, яка працює у фоні Windows:
