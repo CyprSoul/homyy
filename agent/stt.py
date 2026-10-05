@@ -1,19 +1,56 @@
-"""Розпізнавання мови через faster-whisper (на процесорі, відеокарта — для Gemma)."""
+"""Розпізнавання мови через faster-whisper.
+
+Команди — на відеокарті, якщо вийде (≈0.3 с замість ≈3 с на процесорі), інакше на процесорі.
+Маленька модель для «Хомі» завжди на процесорі: їй вистачає, а відеопам'ять — для Gemma.
+"""
+import importlib.util
+import os
+import sys
+
 import numpy as np
 from faster_whisper import WhisperModel
+
+
+def _enable_cuda_dlls():
+    """На Windows бібліотеки CUDA з pip-пакетів nvidia-* треба явно показати системі."""
+    if sys.platform != "win32":
+        return
+    for pkg in ("nvidia.cublas", "nvidia.cudnn", "nvidia.cuda_runtime"):
+        try:
+            spec = importlib.util.find_spec(pkg)
+        except ModuleNotFoundError:
+            continue
+        for loc in (spec.submodule_search_locations or []) if spec else []:
+            dll_dir = os.path.join(loc, "bin")
+            if os.path.isdir(dll_dir):
+                os.add_dll_directory(dll_dir)
+                os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
 
 
 class STT:
     def __init__(self, cfg: dict):
         s = cfg["stt"]
-        common = dict(device=s.get("device", "cpu"), compute_type=s.get("compute_type", "int8"),
-                      cpu_threads=int(s.get("cpu_threads", 8)))
+        threads = int(s.get("cpu_threads", 16))
         self.language = s.get("language", "uk")
         self.beam_size = int(s.get("beam_size", 1))
-        print(f"Завантажую модель для «Хомі»: {s['wake_model']}…")
-        self.wake_model = WhisperModel(s["wake_model"], **common)
+
+        print(f"Завантажую модель для «Хомі»: {s['wake_model']} (процесор)…")
+        self.wake_model = WhisperModel(s["wake_model"], device="cpu", compute_type="int8", cpu_threads=threads)
+
         print(f"Завантажую модель для команд: {s['model']} (перший раз — кілька хвилин)…")
-        self.model = WhisperModel(s["model"], **common)
+        self.model = None
+        if s.get("device", "auto") in ("auto", "cuda"):
+            try:
+                _enable_cuda_dlls()
+                model = WhisperModel(s["model"], device="cuda", compute_type=s.get("gpu_compute_type", "int8_float16"))
+                list(model.transcribe(np.zeros(16000, dtype=np.float32), language=self.language)[0])  # пробний запуск
+                self.model = model
+                print("Розпізнавання команд — на відеокарті ⚡")
+            except Exception as e:
+                print(f"Відеокарта для розпізнавання не вийшла ({str(e)[:120]}), працюю на процесорі.")
+        if self.model is None:
+            self.model = WhisperModel(s["model"], device="cpu", compute_type=s.get("compute_type", "int8"),
+                                      cpu_threads=threads)
 
     @staticmethod
     def _f32(pcm: np.ndarray) -> np.ndarray:

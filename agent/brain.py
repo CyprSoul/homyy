@@ -14,6 +14,7 @@ VOICE_RULES = """
 - Відповідай 1–3 короткими реченнями, без списків, емодзі й розмітки.
 - Час і дати пиши цифрами (20:04, 5 жовтня 2026) — голос прочитає їх правильно. Не переводь час у слова.
 - Якщо щось незрозуміло (мене могло погано розпізнати) — перепитай.
+- Ти дівчина й у прощаннях теж: «Рада була поговорити», «Я була рада допомогти» — ніколи не «радий».
 - Для часу, дат, пошуку, пам'яті, музики й програм використовуй свої інструменти.
 """
 
@@ -51,8 +52,7 @@ class Brain:
         prompt = (self.prompt_template
                   .replace("{{USER_NAME}}", user.get("name_genitive", user["name"]))
                   .replace("{{CURRENT_DATE}}", ukr_date(date.today())))
-        prompt += f"\nЗараз {datetime.now():%H:%M} — на питання «котра година» відповідай одразу, без інструментів.\n"
-        prompt += VOICE_RULES
+        prompt += "\n" + VOICE_RULES
         memories = self._memories()
         if memories:
             prompt += "\nЩО ТИ ЗНАЄШ ПРО МЕНЕ (з пам'яті)\n" + "\n".join(f"- {m}" for m in memories)
@@ -78,7 +78,10 @@ class Brain:
             self.history = []
         self.last_turn = time.time()
         self.history.append({"role": "user", "content": user_text})
-        messages = [{"role": "system", "content": self._system_prompt()}, *self.history]
+        # Час — у поточне питання, а не в інструкції: так незмінні інструкції Ollama бере з кешу.
+        now = {"role": "user", "content": f"{user_text}\n\n(Зараз {datetime.now():%H:%M}. "
+                                          "Якщо питають котра година — відповідай одразу, без інструментів.)"}
+        messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
         for _ in range(MAX_TOOL_ROUNDS):
             msg = self._chat(messages)
