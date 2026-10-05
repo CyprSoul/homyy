@@ -315,6 +315,10 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     from .wakeword import Features, WakeModel
     detector = WakeModel.load()
     features = Features() if detector else None
+    # Детектор упевнений (схожість ≥ sure) — прокидаємось без перевірки Whisper: на ~1 с швидше.
+    sure = max(detector.threshold, float(w.get("sure_score", 0.9))) if detector else 1.0
+    end_ms = int(w.get("end_silence_ms", 350))   # скільки тиші після «Хооміі» = кінець слова
+    speaker.warm(["Так?"])                       # «Так?» синтезуємо наперед — звучить миттєво
     log("👂", "Персональний детектор «Хооміі» увімкнено" if detector else
         "Персонального детектора ще немає — навчи: python -m agent.record_wake")
 
@@ -343,7 +347,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
                 log("почула", "Ctrl+Alt+H")
                 conversation(cfg, audio, stt, brain, speaker)
             continue
-        seg = audio.listen(end_silence_ms=500, max_seconds=4,
+        seg = audio.listen(end_silence_ms=end_ms, max_seconds=4,
                            interrupt=lambda: wake_click.is_set() or game_now.is_set() != game_mode)
         if paused.is_set():                       # паузу ввімкнули з меню, поки слухала
             continue
@@ -356,19 +360,25 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
         pcm, speech_s = seg
         if speech_s < min_s * 0.8:          # явно коротке — навіть не розпізнаємо
             continue
+        t0 = time.time()
         if detector:
             score = detector.score(features.vector(pcm))
             if score < detector.threshold * 0.6:      # зовсім не схоже на твоє «Хооміі» — далі не дивимось
                 continue
-            heard = stt.wake(pcm)
-            # обидві перевірки: звучить як твоє «Хооміі» І текст схожий на «Хомі»
-            woke = score >= detector.threshold and (is_wake(heard, speech_s, 0.0, max_words) or score >= 0.97)
-            log("почула" if woke else "не те", f"«{heard}» ({speech_s:.1f} с, схожість {score:.2f})")
+            if score >= sure:
+                # детектор упевнений — не чекаємо на Whisper, прокидаємось одразу
+                heard, woke = "", True
+            else:
+                heard = stt.wake(pcm)
+                # обидві перевірки: звучить як твоє «Хооміі» І текст схожий на «Хомі»
+                woke = score >= detector.threshold and is_wake(heard, speech_s, 0.0, max_words)
+            log("почула" if woke else "не те",
+                f"«{heard or 'Хооміі'}» ({speech_s:.1f} с, схожість {score:.2f}, вирішила за {time.time() - t0:.2f} с)")
         else:
             heard = stt.wake(pcm)
             woke = is_wake(heard, speech_s, min_s, max_words)
             if woke:
-                log("почула", f"«{heard}» ({speech_s:.1f} с)")
+                log("почула", f"«{heard}» ({speech_s:.1f} с, вирішила за {time.time() - t0:.2f} с)")
             elif "м" in collapse(heard):
                 log("не те", f"«{heard}» ({speech_s:.1f} с)")   # підказка для налаштування min_seconds
         if woke:

@@ -27,6 +27,16 @@ class Speaker:
         self.audio.play(self.cache[phrase], RATE)
         self.audio.drain()
 
+    def warm(self, phrases: list[str]):
+        """Синтезує короткі фрази у фоні, щоб перше «Так?» не чекало на сервер голосу."""
+        def work():
+            for p in phrases:
+                try:
+                    self.cache.setdefault(p, self._synth(p))
+                except Exception:
+                    pass
+        self.pool.submit(work)
+
     @staticmethod
     def _request(v: dict, sentence: str) -> bytes:
         r = requests.post(v["url"], timeout=60,
