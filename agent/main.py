@@ -4,12 +4,34 @@ import time
 
 import requests
 
-from .config import load_config
+from .config import AGENT_DIR, load_config
 from .text import collapse, is_noise, is_stop, is_wake
 
 
+LOG_FILE = AGENT_DIR / "homyy.log"
+
+
 def log(who: str, text: str):
-    print(f"[{time.strftime('%H:%M:%S')}] {who}: {text}", flush=True)
+    line = f"[{time.strftime('%H:%M:%S')}] {who}: {text}"
+    print(line, flush=True)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d')} {line}\n")
+    except OSError:
+        pass
+
+
+def wait_for_ollama(cfg: dict, max_wait_s: int = 300):
+    """Після увімкнення ПК Ollama й Docker стартують не одразу — чекаємо їх."""
+    url = cfg["ollama"]["url"] + "/api/tags"
+    start = time.time()
+    while time.time() - start < max_wait_s:
+        try:
+            requests.get(url, timeout=3)
+            return
+        except requests.RequestException:
+            log("…", "чекаю, поки запуститься Ollama")
+            time.sleep(10)
 
 
 def check_services(cfg: dict):
@@ -71,6 +93,7 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     cfg = load_config()
+    wait_for_ollama(cfg)
     check_services(cfg)
 
     from .audio import Audio
