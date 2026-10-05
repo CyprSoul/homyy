@@ -88,7 +88,7 @@
 ### Етап 6. Художниця 🎨
 - [x] Встановити **ComfyUI Desktop** (comfy.org), GPU: NVIDIA
 - [x] Модель **Z-Image-Turbo** (шаблон ComfyUI, ~19 ГБ): перша картинка 1024×1024 за ~8 с, макс. 63°C, ~350 Вт, до 15 ГБ VRAM
-- [ ] Перевірити швидкість, коли поруч завантажена Gemma (16 ГБ VRAM на двох)
+- [ ] 16 ГБ VRAM на двох: ComfyUI тримає модель у пам'яті, і Gemma не може завантажитись (Ollama падає з CUDA error). Рішення — [`scripts/comfy-autofree.ps1`](scripts/comfy-autofree.ps1) в автозапуску: звільняє VRAM через 30 с простою ComfyUI
 - [ ] Підключити ComfyUI до Open WebUI (workflow у форматі API) → пункт 8
 
 ### Етап 7. Пошта й календар 📅
