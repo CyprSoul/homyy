@@ -1,4 +1,4 @@
-# Встановлює голосову Хомі: віртуальне середовище Python 3.11 і бібліотеки.
+﻿# Встановлює голосову Хомі: віртуальне середовище Python 3.11 і бібліотеки.
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 if (-not (Test-Path .venv)) { py -3.11 -m venv .venv }
