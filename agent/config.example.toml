@@ -64,3 +64,7 @@ ignore = []              # програми на весь екран, які Н�
 
 [obsidian]
 vault = ""               # шлях до сховища Obsidian, наприклад "C:/Users/igork/Documents/Obsidian Vault"
+
+[telegram]
+token = ""               # токен від @BotFather
+allowed_ids = []         # твій Telegram ID (бот підкаже його, якщо написати йому)

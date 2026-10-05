@@ -7,6 +7,7 @@ import gc
 import importlib.util
 import os
 import sys
+import threading
 
 import numpy as np
 from faster_whisper import WhisperModel
@@ -31,6 +32,7 @@ def _enable_cuda_dlls():
 class STT:
     def __init__(self, cfg: dict):
         s = self.cfg = cfg["stt"]
+        self.lock = threading.Lock()
         self.threads = int(s.get("cpu_threads", 16))
         self.language = s.get("language", "uk")
         self.beam_size = int(s.get("beam_size", 1))
@@ -86,6 +88,7 @@ class STT:
         return " ".join(s.text for s in segs).strip()
 
     def command(self, pcm: np.ndarray) -> str:
-        segs, _ = self.model.transcribe(self._f32(pcm), language=self.language, beam_size=self.beam_size,
-                                        condition_on_previous_text=False, vad_filter=True)
-        return " ".join(s.text for s in segs).strip()
+        with self.lock:                  # голос із мікрофона й голосові з Telegram — по черзі
+            segs, _ = self.model.transcribe(self._f32(pcm), language=self.language, beam_size=self.beam_size,
+                                            condition_on_previous_text=False, vad_filter=True)
+            return " ".join(s.text for s in segs).strip()

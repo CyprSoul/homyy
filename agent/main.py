@@ -286,6 +286,10 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
         speak(speaker, audio, text)
         ui.set_state(prev)
     brain.tools.on_reminder = remind
+
+    if cfg.get("telegram", {}).get("token"):
+        from .telegram_bot import TelegramBot
+        TelegramBot(cfg, Brain(cfg), stt, log, is_gaming=lambda: game_mode).start()
     if orb is not None:
         threading.Thread(target=_feed_levels, args=(orb, audio), daemon=True).start()
     threading.Thread(target=_watch_games, args=(cfg,), daemon=True).start()
