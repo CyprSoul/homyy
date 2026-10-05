@@ -288,8 +288,13 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     from .tts import Speaker
 
     stt = STT(cfg)
-    log("…", "завантажую Gemma у відеокарту наперед")
-    _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
+    # Gemma вантажиться у фоні (~20 с): Хомі вже слухає й вітається, а питання просто трохи зачекає.
+    log("…", "завантажую Gemma у відеокарту у фоні")
+    def _preload():
+        t = time.time()
+        _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
+        log("✓", f"Gemma готова ({time.time() - t:.0f} с)")
+    threading.Thread(target=_preload, daemon=True).start()
     audio = Audio(cfg)
     brain = Brain(cfg)
     BRAIN.append(brain)
@@ -324,7 +329,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
 
     log("Хомі", "Готова! Поклич мене: «Хооміі». Вийти — Ctrl+C або правий клік по кульці.")
     if cfg.get("ui", {}).get("greet", True):
-        speak(speaker, audio, greeting(cfg["user"]["name"], time.localtime().tm_hour, random.randrange(10)))
+        speak(speaker, audio, greeting(cfg["user"].get("name_vocative", cfg["user"]["name"]), time.localtime().tm_hour, random.randrange(10)))
     sleep_state_logged = False
     while True:
         if not sleep_state_logged:
