@@ -51,3 +51,10 @@ def test_noise_and_stop():
     assert is_stop("Все, бувай!")
     assert not is_stop("Розкажи все про космос, будь ласка, детально")
     assert not is_stop("Дякую")
+
+
+def test_greeting_by_time():
+    from agent.text import greeting
+    assert "ранку" in greeting("Ігор", 8)
+    assert "вечір" in greeting("Ігор", 20).lower()
+    assert "Ігор" in greeting("Ігор", 2, pick=1)

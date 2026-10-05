@@ -109,3 +109,18 @@ def is_stop(transcript: str) -> bool:
     """«Дякую, це все», «Все, бувай», «Стоп» — коротка фраза з «стоп-словом»."""
     words = collapse(transcript).replace("'", "").split()
     return 0 < len(words) <= 4 and any(w in _STOP_WORDS for w in words)
+
+
+_GREETINGS = {
+    "morning": ["Доброго ранку, {name}! Я тут.", "Ранок добрий, {name}! Хомі на зв'язку."],
+    "day":     ["Привіт, {name}! Я тут, клич, якщо що.", "Я на місці, {name}. Слухаю, коли покличеш."],
+    "evening": ["Добрий вечір, {name}! Я поруч.", "Вечір добрий, {name}! Хомі на зв'язку."],
+    "night":   ["Не спиться, {name}? Я тут.", "Я тут, {name}. Тихенько слухаю."],
+}
+
+
+def greeting(name: str, hour: int, pick: int = 0) -> str:
+    part = ("night" if hour < 5 else "morning" if hour < 12 else
+            "day" if hour < 18 else "evening" if hour < 23 else "night")
+    options = _GREETINGS[part]
+    return options[pick % len(options)].format(name=name)

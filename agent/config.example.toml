@@ -50,3 +50,8 @@ youtube = "https://www.youtube.com"
 telegram = "tg://"
 "блокнот" = "notepad.exe"
 "калькулятор" = "calc.exe"
+
+[ui]
+widget = true            # кулька-віджет у кутку екрана
+position = "bottom-right"  # або "top-left"
+greet = true             # привітатися голосом після запуску

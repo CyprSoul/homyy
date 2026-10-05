@@ -1,14 +1,29 @@
-"""Голосова Хомі: «Хоооуммміііі» → сигнал → твоє питання → відповідь голосом."""
+"""Голосова Хомі: «Хооміі» → «Так?» → твоє питання → відповідь голосом.
+
+Поруч живе віджет-кулька: показує, що Хомі робить, і будить її по кліку.
+"""
+import os
+import random
+import signal
 import sys
+import threading
 import time
+import traceback
 
 import requests
 
 from .config import AGENT_DIR, load_config
-from .text import collapse, is_noise, is_stop, is_wake
-
+from .text import collapse, greeting, is_noise, is_stop, is_wake
 
 LOG_FILE = AGENT_DIR / "homyy.log"
+
+
+class NoUI:
+    def set_state(self, state: str):
+        pass
+
+
+ui = NoUI()
 
 
 def log(who: str, text: str):
@@ -50,23 +65,35 @@ def check_services(cfg: dict):
 
 def sleep(audio):
     audio.beep(up=False)
-    log("💤", "Сплю. Щоб покликати — «Хооміі».")
+    ui.set_state("sleep")
+    log("💤", "Сплю. Щоб покликати — «Хооміі» або клік по кульці.")
+
+
+def speak(speaker, audio, text: str):
+    ui.set_state("speak")
+    try:
+        speaker.say(text)
+    except requests.RequestException as e:
+        log("помилка голосу", str(e))
+        audio.beep(up=True)
 
 
 def conversation(cfg, audio, stt, brain, speaker):
     w = cfg["wake"]
+    ui.set_state("speak")
     try:
         speaker.say_cached("Так?")          # чітко чути: Хомі прокинулась і слухає
     except requests.RequestException:
         audio.beep(up=True)
     timeout = float(w.get("follow_up_seconds", 8))
     while True:
+        ui.set_state("listen")
         log("🎙️", f"Слухаю… (говори, у тебе {timeout:.0f} с)")
         seg = audio.listen(end_silence_ms=900, max_seconds=25, start_timeout_s=timeout)
         if seg is None:
             sleep(audio)
             return
-        log("…", "розбираю, що ти сказав")
+        ui.set_state("hear")
         text = stt.command(seg[0])
         if is_noise(text) or is_wake(text, 9.0, 0.0, 2):   # шум або просто повторене «Хомі»
             continue
@@ -74,25 +101,19 @@ def conversation(cfg, audio, stt, brain, speaker):
         if is_stop(text):
             sleep(audio)
             return
-        log("🤔", "Думаю…")
+        ui.set_state("think")
         try:
             answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
         except requests.RequestException as e:
             log("помилка", str(e))
             answer = "Ой, я не можу достукатися до свого мозку. Перевір, будь ласка, чи працює Ollama."
         log("Хомі", answer)
-        try:
-            speaker.say(answer)
-        except requests.RequestException as e:
-            log("помилка голосу", str(e))
+        speak(speaker, audio, answer)
         audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
         timeout = float(w.get("follow_up_seconds", 8))
 
 
-def main():
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-    cfg = load_config()
+def voice_loop(cfg: dict, wake_click: threading.Event):
     wait_for_ollama(cfg)
     check_services(cfg)
 
@@ -106,12 +127,22 @@ def main():
     brain = Brain(cfg)
     speaker = Speaker(cfg, audio)
     w = cfg["wake"]
-    min_s, max_words = float(w.get("min_seconds", 1.0)), int(w.get("max_words", 3))
+    min_s, max_words = float(w.get("min_seconds", 0.6)), int(w.get("max_words", 3))
 
-    log("Хомі", "Готова! Поклич мене: «Хооміі». Вийти — Ctrl+C.")
-    log("💤", "Сплю. Щоб покликати — «Хооміі».")
+    log("Хомі", "Готова! Поклич мене: «Хооміі». Вийти — Ctrl+C або правий клік по кульці.")
+    if cfg.get("ui", {}).get("greet", True):
+        speak(speaker, audio, greeting(cfg["user"]["name"], time.localtime().tm_hour, random.randrange(10)))
+    sleep_state_logged = False
     while True:
-        seg = audio.listen(end_silence_ms=500, max_seconds=4)
+        if not sleep_state_logged:
+            ui.set_state("sleep")
+            log("💤", "Сплю. Щоб покликати — «Хооміі» або клік по кульці.")
+            sleep_state_logged = True
+        seg = audio.listen(end_silence_ms=500, max_seconds=4, interrupt=wake_click)
+        if seg == "interrupt":
+            log("почула", "клік по кульці")
+            conversation(cfg, audio, stt, brain, speaker)
+            continue
         pcm, speech_s = seg
         if speech_s < min_s * 0.8:          # явно коротке — навіть не розпізнаємо
             continue
@@ -123,8 +154,44 @@ def main():
             log("не те", f"«{heard}» ({speech_s:.1f} с)")   # підказка для налаштування min_seconds
 
 
-if __name__ == "__main__":
+def _guarded(cfg, wake_click):
     try:
-        main()
+        voice_loop(cfg, wake_click)
+    except Exception:
+        ui.set_state("error")
+        log("помилка", traceback.format_exc())
+        raise
+
+
+def main():
+    global ui
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    cfg = load_config()
+    wake_click = threading.Event()
+
+    if not cfg.get("ui", {}).get("widget", True):
+        voice_loop(cfg, wake_click)
+        return
+
+    try:
+        from .widget import Widget
+        widget = Widget(on_click=wake_click.set, on_quit=lambda: os._exit(0),
+                        position=cfg.get("ui", {}).get("position", "bottom-right"))
+    except Exception as e:   # немає графіки — працюємо без віджета
+        log("!", f"Віджет не запустився ({e}), працюю без нього.")
+        voice_loop(cfg, wake_click)
+        return
+
+    ui = widget
+    signal.signal(signal.SIGINT, lambda *_: os._exit(0))   # Ctrl+C у консолі теж вимикає Хомі
+    threading.Thread(target=_guarded, args=(cfg, wake_click), daemon=True).start()
+    try:
+        widget.mainloop()
     except KeyboardInterrupt:
-        print("\nБувай! 👋")
+        pass
+    os._exit(0)
+
+
+if __name__ == "__main__":
+    main()
