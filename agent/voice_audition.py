@@ -10,19 +10,24 @@ import requests
 
 PHRASE = ("Привіт, Ігоре! Я Хомі. Сьогодні двадцять перше жовтня, на вулиці дванадцять градусів. "
           "Хочеш, я складу план тренувань на завтра?")
+# Жіночі голоси StyleTTS2-Ukrainian (Хомі — дівчина). Повний список — з параметром --all.
+FEMALE = ["Марина Панас", "Інна Гелевера", "Анастасія Павленко", "Вероніка Дорош", "Влада Муравець",
+          "Вікторія Левченко", "Гаська Шиян", "Катерина Потапенко", "Людмила Чиркова", "Марися Нікітюк",
+          "Марта Мольфар", "Марічка Штирбулова", "Олена Шверк", "Поліна Еккерт", "Слава Красовська",
+          "Тетяна Гончарова", "Тетяна Лукинюк"]
 OUT = Path("C:/homyy/voices") if sys.platform == "win32" else Path.home() / "homyy-voices"
 
 
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    base = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8003"
-    r = requests.get(f"{base}/v1/audio/voices", timeout=60)
-    if not r.ok:
-        print(f"Сервер голосу ще не готовий або помилка ({r.status_code}): {r.text[:300]}")
-        print("Подивись журнал: docker logs tts_uk_api --tail 40   і   docker logs tts_uk_gradio --tail 40")
-        return
-    voices = r.json().get("voices", [])
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    base = args[0] if args else "http://localhost:8003"
+    voices = FEMALE
+    if "--all" in sys.argv:
+        r = requests.get(f"{base}/v1/audio/voices", timeout=60)   # є лише в новіших версіях сервера
+        if r.ok:
+            voices = r.json().get("voices", FEMALE)
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"Голосів: {len(voices)}. Записую зразки в {OUT} …")
     for v in voices:
