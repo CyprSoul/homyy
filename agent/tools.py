@@ -1,4 +1,6 @@
 """Інструменти, якими Хомі користується сама: час, дати, пошук, пам'ять, медіа, програми."""
+import base64
+import io
 import json
 import os
 import sys
@@ -49,6 +51,10 @@ class Tools:
             _schema("mark_game", "Позначити програму, яка зараз на екрані, як гру (у ній Хомі звільняє "
                     "відеокарту) або як НЕ гру. Коли кажуть «це гра» / «це не гра».",
                     {"is_game": {"type": "boolean"}}, ["is_game"]),
+            _schema("look_at_screen", "Подивитися на екран користувача й відповісти на питання про те, що там: "
+                    "«що в мене на екрані», «що це за помилка», «переклади, що тут написано».",
+                    {"question": {"type": "string", "description": "Що саме треба з'ясувати на екрані"}},
+                    ["question"]),
             _schema("open_website", "Відкрити сайт у браузері.",
                     {"url": {"type": "string", "description": "Повна адреса https://…"}}, ["url"]),
         ]
@@ -123,3 +129,22 @@ class Tools:
             return "Не бачу, яка програма зараз на екрані."
         remember(exe, bool(is_game))
         return f"Запам'ятала: {exe} — {'гра' if is_game else 'не гра'}."
+
+    def _t_look_at_screen(self, question: str) -> str:
+        """Знімок екрана → Gemma (вона бачить картинки) → текстова відповідь. Знімок нікуди не йде з ПК."""
+        from PIL import ImageGrab
+        img = ImageGrab.grab(all_screens=False).convert("RGB")
+        img.thumbnail((1600, 1600))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        o = self.cfg["ollama"]
+        r = requests.post(f"{o['url']}/api/chat", timeout=180, json={
+            "model": o["model"], "stream": False, "think": False, "keep_alive": o.get("keep_alive", "24h"),
+            "options": {"num_ctx": o.get("num_ctx", 32768), "temperature": 0.2},
+            "messages": [{"role": "user", "content":
+                          f"Це знімок екрана користувача. {question}\n"
+                          "Відповідай українською, коротко й по суті, лише про те, що справді видно.",
+                          "images": [base64.b64encode(buf.getvalue()).decode()]}],
+        })
+        r.raise_for_status()
+        return r.json()["message"]["content"]
