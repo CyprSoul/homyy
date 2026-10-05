@@ -12,20 +12,26 @@ import traceback
 import requests
 
 from .config import AGENT_DIR, load_config
-from .text import collapse, greeting, is_noise, is_stop, is_wake
+from .text import collapse, greeting, is_noise, is_pause, is_stop, is_wake
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 
 
-class NoUI:
+class UI:
+    """Пам'ятає поточний стан і передає його сфері (якщо вона є)."""
+
+    def __init__(self, orb=None):
+        self.orb = orb
+        self.state = "boot"
+
     def set_state(self, state: str):
-        pass
+        self.state = state
+        if self.orb:
+            self.orb.set_state(state)
 
-    def set_level(self, level: float):
-        pass
 
-
-ui = NoUI()
+ui = UI()
+paused = threading.Event()
 
 
 def log(who: str, text: str):
@@ -80,6 +86,19 @@ def sleep(audio):
     log("💤", "Сплю. Щоб покликати — «Хооміі» або клік по кульці.")
 
 
+def pause(audio):
+    paused.set()
+    audio.beep(up=False)
+    ui.set_state("paused")
+    log("⏸️", "Пауза: не слухаю. Продовжити — клік по сфері або меню.")
+
+
+def resume():
+    paused.clear()
+    ui.set_state("sleep")
+    log("▶️", "Знову слухаю «Хооміі».")
+
+
 def speak(speaker, audio, text: str):
     ui.set_state("speak")
     try:
@@ -112,6 +131,9 @@ def conversation(cfg, audio, stt, brain, speaker):
         if is_stop(text):
             sleep(audio)
             return
+        if is_pause(text):
+            pause(audio)
+            return
         ui.set_state("think")
         try:
             answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
@@ -125,9 +147,10 @@ def conversation(cfg, audio, stt, brain, speaker):
 
 
 def _feed_levels(orb, audio):
-    """20 разів на секунду передає сфері гучність, щоб вона «жила» в такт голосу."""
+    """20 разів на секунду передає сфері гучність — лише коли Хомі слухає тебе чи говорить,
+    щоб уві сні вона не смикалась від кожного звуку (Discord, музика, розмови поруч)."""
     while True:
-        orb.set_level(audio.level())
+        orb.set_level(audio.level() if ui.state in ("listen", "speak") else 0.0)
         time.sleep(0.05)
 
 
@@ -158,7 +181,16 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
             ui.set_state("sleep")
             log("💤", "Сплю. Щоб покликати — «Хооміі» або клік по кульці.")
             sleep_state_logged = True
+        if paused.is_set():
+            audio.drain()
+            if wake_click.wait(timeout=0.3):      # клік по сфері під час паузи = продовжити
+                wake_click.clear()
+                resume()
+                sleep_state_logged = True
+            continue
         seg = audio.listen(end_silence_ms=500, max_seconds=4, interrupt=wake_click)
+        if paused.is_set():                       # паузу ввімкнули з меню, поки слухала
+            continue
         if seg == "interrupt":
             log("почула", "клік по кульці")
             conversation(cfg, audio, stt, brain, speaker)
@@ -193,7 +225,7 @@ def main():
         voice_loop(cfg, wake_click)
         return
 
-    ui = orb
+    ui = UI(orb)
     threading.Thread(target=_orb_events, args=(orb, wake_click), daemon=True).start()
     try:
         voice_loop(cfg, wake_click, orb)
@@ -210,6 +242,13 @@ def _orb_events(orb, wake_click: threading.Event):
         event = orb.next_event(timeout=1.0)
         if event == "click":
             wake_click.set()
+        elif event == "pause":
+            if paused.is_set():
+                resume()
+            else:
+                paused.set()
+                ui.set_state("paused")
+                log("⏸️", "Пауза: не слухаю. Продовжити — клік по сфері або меню.")
         elif event == "quit" or not orb.alive():
             log("Хомі", "Вимикаюсь. Бувай!")
             os._exit(0)

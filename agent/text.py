@@ -124,3 +124,9 @@ def greeting(name: str, hour: int, pick: int = 0) -> str:
             "day" if hour < 18 else "evening" if hour < 23 else "night")
     options = _GREETINGS[part]
     return options[pick % len(options)].format(name=name)
+
+
+def is_pause(transcript: str) -> bool:
+    """«Не слухай», «не підслуховуй» — пауза до кліку чи «Продовжити» в меню сфери."""
+    t = collapse(transcript).replace("'", "")
+    return "не слухай" in t or "не підслуховуй" in t

@@ -58,3 +58,9 @@ def test_greeting_by_time():
     assert "ранку" in greeting("Ігор", 8)
     assert "вечір" in greeting("Ігор", 20).lower()
     assert "Ігор" in greeting("Ігор", 2, pick=1)
+
+
+def test_pause_phrase():
+    from agent.text import is_pause
+    assert is_pause("Хомі, не слухай поки що")
+    assert not is_pause("Постав музику на паузу")

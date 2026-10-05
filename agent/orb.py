@@ -18,6 +18,7 @@ STATES = {
     "think":  ((245, 158, 11), 2.0, 0.045, "Думаю…"),
     "speak":  ((34, 197, 94), 1.3, 0.05, ""),
     "error":  ((239, 68, 68), 0.8, 0.03, "Щось не так"),
+    "paused": ((75, 78, 92), 0.2, 0.01, "Пауза · не слухаю"),
 }
 W, H = 150, 168
 R = 40            # радіус сфери
@@ -167,11 +168,14 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
         def contextMenuEvent(self, e):
             menu = QMenu(self)
             wake = menu.addAction("Покликати Хомі")
+            pause = menu.addAction("Продовжити слухати" if self.state == "paused" else "Пауза (не слухати)")
             menu.addSeparator()
             off = menu.addAction("Вимкнути Хомі")
             chosen = menu.exec(e.globalPos())
             if chosen == wake:
                 evt_q.put("click")
+            elif chosen == pause:
+                evt_q.put("pause")
             elif chosen == off:
                 evt_q.put("quit")
                 QApplication.quit()
