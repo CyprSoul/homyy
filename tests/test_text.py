@@ -47,3 +47,7 @@ def test_noise_and_stop():
     assert is_noise("Дякую за перегляд!")
     assert not is_noise("Яка погода?")
     assert is_stop("Дякую, все.")
+    assert is_stop("Дякую, це все.")
+    assert is_stop("Все, бувай!")
+    assert not is_stop("Розкажи все про космос, будь ласка, детально")
+    assert not is_stop("Дякую")

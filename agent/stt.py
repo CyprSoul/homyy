@@ -9,6 +9,7 @@ class STT:
         common = dict(device=s.get("device", "cpu"), compute_type=s.get("compute_type", "int8"),
                       cpu_threads=int(s.get("cpu_threads", 8)))
         self.language = s.get("language", "uk")
+        self.beam_size = int(s.get("beam_size", 1))
         print(f"Завантажую модель для «Хомі»: {s['wake_model']}…")
         self.wake_model = WhisperModel(s["wake_model"], **common)
         print(f"Завантажую модель для команд: {s['model']} (перший раз — кілька хвилин)…")
@@ -25,6 +26,6 @@ class STT:
         return " ".join(s.text for s in segs).strip()
 
     def command(self, pcm: np.ndarray) -> str:
-        segs, _ = self.model.transcribe(self._f32(pcm), language=self.language, beam_size=5,
+        segs, _ = self.model.transcribe(self._f32(pcm), language=self.language, beam_size=self.beam_size,
                                         condition_on_previous_text=False, vad_filter=True)
         return " ".join(s.text for s in segs).strip()

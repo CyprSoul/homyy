@@ -97,7 +97,7 @@ _HALLUCINATIONS = {
     "дякую за перегляд", "дякуємо за перегляд", "субтитри", "субтитри зроблено",
     "підписуйтесь на канал", "продовження слідує", "дякую", "thank you", "you",
 }
-STOP_PHRASES = {"стоп", "все", "дякую все", "все дякую", "бувай", "відбій", "на цьому все"}
+_STOP_WORDS = {"все", "всьо", "стоп", "бувай", "відбій", "достатньо", "вистачить"}
 
 
 def is_noise(transcript: str) -> bool:
@@ -106,4 +106,6 @@ def is_noise(transcript: str) -> bool:
 
 
 def is_stop(transcript: str) -> bool:
-    return collapse(transcript).strip(" '") in STOP_PHRASES
+    """«Дякую, це все», «Все, бувай», «Стоп» — коротка фраза з «стоп-словом»."""
+    words = collapse(transcript).replace("'", "").split()
+    return 0 < len(words) <= 4 and any(w in _STOP_WORDS for w in words)
