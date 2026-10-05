@@ -87,15 +87,32 @@ def sleep(audio):
     log("💤", "Сплю. Щоб покликати — «Хооміі» або клік по кульці.")
 
 
+def _ollama_keep(cfg, keep_alive):
+    """keep_alive=0 — вивантажити Gemma з відеокарти (для ігор), інше — завантажити наперед."""
+    o = cfg["ollama"]
+    try:
+        requests.post(f"{o['url']}/api/generate", timeout=120,
+                      json={"model": o["model"], "keep_alive": keep_alive,
+                            "options": {"num_ctx": o.get("num_ctx", 32768)}})
+    except requests.RequestException:
+        pass
+
+
+CFG: dict = {}
+
+
 def pause(audio):
     paused.set()
+    threading.Thread(target=_ollama_keep, args=(CFG, 0), daemon=True).start()
     audio.beep(up=False)
     ui.set_state("paused")
-    log("⏸️", "Пауза: не слухаю. Продовжити — клік по сфері або меню.")
+    log("⏸️", "Пауза: не слухаю, відеокарта вільна. Продовжити — клік по сфері або меню.")
 
 
 def resume():
     paused.clear()
+    threading.Thread(target=_ollama_keep, args=(CFG, CFG["ollama"].get("keep_alive", "24h")),
+                     daemon=True).start()
     ui.set_state("sleep")
     log("▶️", "Знову слухаю «Хооміі».")
 
@@ -125,10 +142,12 @@ def conversation(cfg, audio, stt, brain, speaker):
             sleep(audio)
             return
         ui.set_state("hear")
+        t_stt = time.time()
         text = stt.command(seg[0])
+        stt_s = time.time() - t_stt
         if is_noise(text) or is_wake(text, 9.0, 0.0, 2):   # шум або просто повторене «Хомі»
             continue
-        log("Ти", text)
+        log("Ти", f"{text}   [розпізнала за {stt_s:.1f} с]")
         if is_stop(text):
             sleep(audio)
             return
@@ -136,12 +155,13 @@ def conversation(cfg, audio, stt, brain, speaker):
             pause(audio)
             return
         ui.set_state("think")
+        t_llm = time.time()
         try:
             answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
         except requests.RequestException as e:
             log("помилка", str(e))
             answer = "Ой, я не можу достукатися до свого мозку. Перевір, будь ласка, чи працює Ollama."
-        log("Хомі", answer)
+        log("Хомі", f"{answer}   [думала {time.time() - t_llm:.1f} с]")
         speak(speaker, audio, answer)
         audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
         timeout = float(w.get("follow_up_seconds", 8))
@@ -158,6 +178,8 @@ def _feed_levels(orb, audio):
 def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     wait_for_ollama(cfg)
     check_services(cfg)
+    log("…", "завантажую Gemma у відеокарту наперед")
+    _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
 
     from .audio import Audio
     from .brain import Brain
@@ -230,6 +252,7 @@ def main():
         time.sleep(3)
         return
     cfg = load_config()
+    CFG.update(cfg)
     wake_click = threading.Event()
 
     if not cfg.get("ui", {}).get("widget", True):
@@ -266,8 +289,9 @@ def _orb_events(orb, wake_click: threading.Event):
                 resume()
             else:
                 paused.set()
+                threading.Thread(target=_ollama_keep, args=(CFG, 0), daemon=True).start()
                 ui.set_state("paused")
-                log("⏸️", "Пауза: не слухаю. Продовжити — клік по сфері або меню.")
+                log("⏸️", "Пауза: не слухаю, відеокарта вільна. Продовжити — клік по сфері або меню.")
         elif event == "quit" or not orb.alive():
             log("Хомі", "Вимикаюсь. Бувай!")
             os._exit(0)

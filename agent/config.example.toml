@@ -9,7 +9,7 @@ url = "http://localhost:11434"
 model = "gemma4:26b"
 num_ctx = 32768          # той самий, що в Open WebUI, щоб Ollama не перезавантажувала модель
 temperature = 0.4
-keep_alive = "30m"
+keep_alive = "24h"       # тримати Gemma у відеокарті; «Пауза» на сфері вивантажує її для ігор
 
 [stt]
 wake_model = "small"           # маленька модель — лише щоб почути «Хомі»
