@@ -1,6 +1,7 @@
 """Мікрофон, розпізнавання моменту мовлення (VAD) і відтворення звуку."""
 import collections
 import queue
+import threading
 import time
 
 import numpy as np
@@ -19,6 +20,7 @@ class Audio:
         self.frames: queue.Queue[bytes] = queue.Queue()
         self.mic_level = 0.0
         self._play_env = None            # (час старту, гучність по 50 мс) того, що зараз звучить
+        self._play_lock = threading.Lock()   # нагадування з таймера не перебиває мову посередині
         device = a.get("input_device") or None
         self.stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16",
                                         blocksize=FRAME_SAMPLES, device=device,
@@ -101,10 +103,11 @@ class Audio:
         n = len(x) // chunk
         env = np.sqrt(np.mean(x[:n * chunk].reshape(n, chunk) ** 2, axis=1)) if n else np.zeros(0)
         peak = float(env.max()) if len(env) else 0.0
-        self._play_env = (time.time(), env / peak if peak > 0 else env)
-        sd.play(samples, rate)
-        sd.wait()
-        self._play_env = None
+        with self._play_lock:
+            self._play_env = (time.time(), env / peak if peak > 0 else env)
+            sd.play(samples, rate)
+            sd.wait()
+            self._play_env = None
 
     def beep(self, up: bool = True):
         """Короткий сигнал: угору — «слухаю», донизу — «закінчила слухати»."""
