@@ -13,7 +13,7 @@ import traceback
 import requests
 
 from .config import AGENT_DIR, load_config
-from .text import collapse, greeting, is_noise, is_pause, is_stop, is_wake
+from .text import collapse, greeting, is_new_topic, is_noise, is_pause, is_stop, is_wake
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 
@@ -41,9 +41,13 @@ game_now = threading.Event()        # гра зараз на екрані (ст�
 game_mode = False                   # чи Хомі вже перейшла в ігровий режим
 
 
+_HEADLESS = False
+
+
 def log(who: str, text: str):
     line = f"[{time.strftime('%H:%M:%S')}] {who}: {text}"
-    print(line, flush=True)
+    if not _HEADLESS:                 # без вікна print і так іде в журнал — не дублюємо
+        print(line, flush=True)
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%Y-%m-%d')} {line}\n")
@@ -105,6 +109,7 @@ def _ollama_keep(cfg, keep_alive):
 
 
 CFG: dict = {}
+BRAIN: list = []                    # голосовий «мозок» — щоб меню сфери могло почати нову тему
 
 
 def pause(audio):
@@ -169,6 +174,12 @@ def _conversation(cfg, audio, stt, brain, speaker):
         if is_pause(text):
             pause(audio)
             return
+        if is_new_topic(text):
+            brain.history = []
+            log("🧹", "Нова тема — попередню розмову забула (пам'ять про тебе лишається).")
+            speak(speaker, audio, "Добре, нова тема. Слухаю.")
+            audio.beep(up=True)
+            continue
         ui.set_state("think")
         if game_mode:
             log("🎮", "Gemma прокидається з ігрового режиму (до ~20 с)")
@@ -277,6 +288,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
     audio = Audio(cfg)
     brain = Brain(cfg)
+    BRAIN.append(brain)
     speaker = Speaker(cfg, audio)
 
     def remind(text: str):
@@ -375,6 +387,11 @@ def single_instance() -> bool:
 
 def main():
     global ui
+    if sys.stdout is None or sys.stderr is None:      # запуск без вікна (pythonw): усе — у журнал
+        stream = open(LOG_FILE, "a", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stdout or stream
+        sys.stderr = sys.stderr or stream
+        globals()["_HEADLESS"] = True
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if not single_instance():
@@ -422,6 +439,12 @@ def _orb_events(orb, wake_click: threading.Event):
                 threading.Thread(target=_ollama_keep, args=(CFG, 0), daemon=True).start()
                 ui.set_state("paused")
                 log("⏸️", "Пауза: не слухаю, відеокарта вільна. Продовжити — клік по сфері або меню.")
+        elif event == "newtopic":
+            if BRAIN:
+                BRAIN[0].history = []
+            log("🧹", "Нова тема — попередню розмову забула (пам'ять про тебе лишається).")
+        elif event == "journal":
+            os.startfile(LOG_FILE) if sys.platform == "win32" else None
         elif event == "quit" or not orb.alive():
             log("Хомі", "Вимикаюсь. Бувай!")
             os._exit(0)

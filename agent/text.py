@@ -141,3 +141,13 @@ def is_yes(transcript: str) -> bool:
     if not words or len(words) > 5 or any(w in ("ні", "не", "стоп", "скасуй") for w in words):
         return False
     return any(w in _YES for w in words)
+
+
+_NEW_TOPIC = ("нова тема", "нову тему", "змінимо тему", "змінімо тему", "почнемо спочатку", "забудь розмову",
+              "забудь про це", "інша тема")
+
+
+def is_new_topic(transcript: str) -> bool:
+    """«Нова тема», «змінимо тему», «почнемо спочатку» — забути поточну розмову (не пам'ять)."""
+    t = collapse(transcript).replace("'", "")
+    return len(t.split()) <= 6 and any(p.replace("'", "") in t for p in _NEW_TOPIC)

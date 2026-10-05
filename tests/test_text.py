@@ -64,3 +64,9 @@ def test_pause_phrase():
     from agent.text import is_pause
     assert is_pause("Хомі, не слухай поки що")
     assert not is_pause("Постав музику на паузу")
+
+
+def test_new_topic():
+    from agent.text import is_new_topic
+    assert is_new_topic("Давай нова тема") and is_new_topic("Змінимо тему.") and is_new_topic("Забудь розмову")
+    assert not is_new_topic("Розкажи про нову тему в моді цієї осені та що зараз носять у Європі")

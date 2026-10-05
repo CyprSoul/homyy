@@ -251,13 +251,19 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             menu = QMenu(self)
             wake = menu.addAction("Покликати Хомі")
             pause = menu.addAction("Продовжити слухати" if self.state == "paused" else "Пауза (не слухати)")
+            topic = menu.addAction("Нова тема (забути поточну розмову)")
             menu.addSeparator()
+            journal = menu.addAction("Відкрити журнал")
             off = menu.addAction("Вимкнути Хомі")
             chosen = menu.exec(e.globalPos())
             if chosen == wake:
                 evt_q.put("click")
             elif chosen == pause:
                 evt_q.put("pause")
+            elif chosen == topic:
+                evt_q.put("newtopic")
+            elif chosen == journal:
+                evt_q.put("journal")
             elif chosen == off:
                 evt_q.put("quit")
                 QApplication.quit()
