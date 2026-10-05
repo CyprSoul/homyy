@@ -38,3 +38,13 @@ def test_search_on_site(monkeypatch):
     monkeypatch.setattr("webbrowser.open", opened.append)
     assert "rozetka" in Tools(CFG).call("search_on_site", {"site": "розетка", "query": "навушники"})
     assert opened == ["https://rozetka.com.ua/ua/search/?text=%D0%BD%D0%B0%D0%B2%D1%83%D1%88%D0%BD%D0%B8%D0%BA%D0%B8"]
+
+
+def test_user_config_overrides_defaults(tmp_path):
+    from agent.config import load_config
+    p = tmp_path / "config.toml"
+    p.write_text('[wake]\nmin_seconds = 0.7\n[apps]\n"танки" = "wot.exe"\n', encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg["wake"]["min_seconds"] == 0.7 and cfg["wake"]["max_words"] == 3   # своє + стандартне
+    assert cfg["apps"]["танки"] == "wot.exe" and "steam" in cfg["apps"]
+    assert cfg["game"]["voice_wake"] is False and "obsidian" in cfg
