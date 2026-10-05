@@ -70,7 +70,8 @@ def wait_for_ollama(cfg: dict, max_wait_s: int = 300):
 
 def check_services(cfg: dict):
     checks = {"Ollama": cfg["ollama"]["url"] + "/api/tags",
-              "Голос (edge-tts)": cfg["tts"]["url"].rsplit("/v1/", 1)[0] + "/",
+              "Голос": cfg["tts"]["url"].rsplit("/v1/", 1)[0] + "/",
+              "Запасний голос": cfg["tts"].get("fallback", {}).get("url", cfg["tts"]["url"]).rsplit("/v1/", 1)[0] + "/",
               "Пошук (SearXNG)": cfg["search"]["url"]}
     for name, url in checks.items():
         try:

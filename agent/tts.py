@@ -1,4 +1,7 @@
-"""Голос Поліни через контейнер openai-edge-tts."""
+"""Голос Хомі: основний (локальний український StyleTTS2) і запасний (Поліна через openai-edge-tts).
+
+Якщо основний голос недоступний (контейнер не запущений), Хомі говорить запасним — не мовчить.
+"""
 from concurrent.futures import ThreadPoolExecutor
 
 import miniaudio
@@ -24,13 +27,24 @@ class Speaker:
         self.audio.play(self.cache[phrase], RATE)
         self.audio.drain()
 
-    def _synth(self, sentence: str) -> np.ndarray:
-        r = requests.post(self.cfg["url"], timeout=30,
-                          headers={"Authorization": f"Bearer {self.cfg.get('api_key', '')}"},
-                          json={"model": self.cfg.get("model", "tts-1"), "input": sentence, "voice": self.cfg["voice"],
-                                "speed": float(self.cfg.get("speed", 1.0)), "response_format": "mp3"})
+    @staticmethod
+    def _request(v: dict, sentence: str) -> bytes:
+        r = requests.post(v["url"], timeout=60,
+                          headers={"Authorization": f"Bearer {v.get('api_key', '')}"},
+                          json={"model": v.get("model", "tts-1"), "input": sentence, "voice": v["voice"],
+                                "speed": float(v.get("speed", 1.0)), "response_format": "mp3"})
         r.raise_for_status()
-        decoded = miniaudio.decode(r.content, output_format=miniaudio.SampleFormat.SIGNED16,
+        return r.content
+
+    def _synth(self, sentence: str) -> np.ndarray:
+        try:
+            data = self._request(self.cfg, sentence)
+        except requests.RequestException:
+            fallback = self.cfg.get("fallback")
+            if not fallback:
+                raise
+            data = self._request(fallback, sentence)
+        decoded = miniaudio.decode(data, output_format=miniaudio.SampleFormat.SIGNED16,
                                    nchannels=1, sample_rate=RATE)
         return np.frombuffer(decoded.samples, dtype=np.int16)
 
