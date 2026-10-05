@@ -5,6 +5,7 @@
 import os
 import random
 import socket
+from urllib.parse import urlparse
 import sys
 import threading
 import time
@@ -74,10 +75,12 @@ def check_services(cfg: dict):
               "Запасний голос": cfg["tts"].get("fallback", {}).get("url", cfg["tts"]["url"]).rsplit("/v1/", 1)[0] + "/",
               "Пошук (SearXNG)": cfg["search"]["url"]}
     for name, url in checks.items():
+        # Досить того, що порт відповідає: деякі сервери (StyleTTS2) довго думають над «/».
+        u = urlparse(url)
         try:
-            requests.get(url, timeout=3)
+            socket.create_connection((u.hostname, u.port or (443 if u.scheme == "https" else 80)), timeout=3).close()
             log("✓", name)
-        except requests.RequestException:
+        except OSError:
             log("✗", f"{name} недоступний ({url}). Запусти Docker / Ollama.")
     ow = cfg.get("openwebui", {})
     if not ow.get("api_key"):
