@@ -23,8 +23,16 @@ def test_tool_loop(monkeypatch):
     assert b.ask("Скільки Тимофію?") == "Тимофію шість місяців і сімнадцять днів."
     system = seen[0][0]["content"]
     assert "помічниця Ігоря" in system and "ГОЛОСОВИЙ РЕЖИМ" in system and "{{" not in system
-    assert "котра година" in seen[0][-1]["content"] and "(Зараз " not in system
+    assert "Службова довідка" in seen[0][-1]["content"] and "(Зараз " not in system
     tool_msg = seen[1][-1]
     assert tool_msg["role"] == "tool" and '"days": 17' in tool_msg["content"]
     assert tool_msg["content"].endswith(STYLE_REMINDER)
     assert b.history[-1] == {"role": "assistant", "content": "Тимофію шість місяців і сімнадцять днів."}
+
+
+def test_unasked_time_is_stripped():
+    from agent.brain import strip_unasked_time
+    a = "Я тут, Ігорю. Просто чекаю, коли ти щось скажеш. Зараз 23:45."
+    assert strip_unasked_time("Що ти там?", a) == "Я тут, Ігорю. Просто чекаю, коли ти щось скажеш."
+    assert strip_unasked_time("Котра година?", "Зараз 23:45.") == "Зараз 23:45."
+    assert strip_unasked_time("Привіт", "Зараз 23:45.") == "Зараз 23:45."   # не лишаємо порожньо

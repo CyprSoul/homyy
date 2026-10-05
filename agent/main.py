@@ -194,6 +194,8 @@ def _conversation(cfg, audio, stt, brain, speaker):
             log("помилка", str(e))
             answer = "Ой, я не можу достукатися до свого мозку. Перевір, будь ласка, чи працює Ollama."
         log("Хомі", f"{answer}   [думала {time.time() - t_llm:.1f} с]")
+        for st in brain.stats:
+            log("⏱", st)
         speak(speaker, audio, answer)
         audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
         timeout = float(w.get("follow_up_seconds", 8))
