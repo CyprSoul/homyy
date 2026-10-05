@@ -6,7 +6,7 @@ CFG = {"apps": {"Steam": "steam://open/main"}, "search": {"url": "http://x"}, "o
 def test_schemas_valid():
     names = [s["function"]["name"] for s in Tools(CFG).schemas()]
     assert {"current_datetime", "date_difference", "web_search", "remember", "media",
-            "open_app", "open_website"} <= set(names)
+            "open_app", "open_website", "mark_game"} <= set(names)
 
 
 def test_unknown_and_safe_failures():

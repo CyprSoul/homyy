@@ -46,6 +46,9 @@ class Tools:
                     ["action"]),
             _schema("open_app", f"Відкрити програму чи сайт зі списку: {apps}.",
                     {"name": {"type": "string"}}, ["name"]),
+            _schema("mark_game", "Позначити програму, яка зараз на екрані, як гру (у ній Хомі звільняє "
+                    "відеокарту) або як НЕ гру. Коли кажуть «це гра» / «це не гра».",
+                    {"is_game": {"type": "boolean"}}, ["is_game"]),
             _schema("open_website", "Відкрити сайт у браузері.",
                     {"url": {"type": "string", "description": "Повна адреса https://…"}}, ["url"]),
         ]
@@ -112,3 +115,11 @@ class Tools:
             return "Можна відкривати лише адреси, що починаються з http:// або https://."
         webbrowser.open(url)
         return f"Відкрила {url}."
+
+    def _t_mark_game(self, is_game: bool) -> str:
+        from .gamewatch import foreground, remember
+        exe, _ = foreground()
+        if not exe or exe.lower() in ("python.exe", "pythonw.exe", "powershell.exe"):
+            return "Не бачу, яка програма зараз на екрані."
+        remember(exe, bool(is_game))
+        return f"Запам'ятала: {exe} — {'гра' if is_game else 'не гра'}."

@@ -2,3 +2,4 @@
 __pycache__/
 agent/config.toml
 agent/homyy.log
+agent/games.json

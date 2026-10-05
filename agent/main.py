@@ -185,17 +185,23 @@ def _conversation(cfg, audio, stt, brain, speaker):
 
 
 def _watch_games(cfg: dict):
-    """Раз на 3 секунди дивиться, чи на екрані гра."""
-    from .gamewatch import DEFAULT_IGNORE, classify, foreground
+    """Раз на 3 секунди дивиться, чи на екрані гра. Нові повноекранні ігри запам'ятовує сама."""
+    from .gamewatch import DEFAULT_IGNORE, classify, foreground, load_learned, remember
     g = cfg.get("game", {})
     if not g.get("enabled", True):
         return
-    games = {x.lower() for x in g.get("processes", [])}
-    ignore = DEFAULT_IGNORE | {x.lower() for x in g.get("ignore", [])}
     while True:
         try:
+            learned = load_learned()
+            games = {x.lower() for x in g.get("processes", [])} | learned["games"]
+            ignore = DEFAULT_IGNORE | {x.lower() for x in g.get("ignore", [])} | learned["ignore"]
             exe, full = foreground()
-            game_now.set() if classify(exe, full, games, ignore) else game_now.clear()
+            if classify(exe, full, games, ignore):
+                if exe and exe.lower() not in games and remember(exe, True):
+                    log("🎮", f"Запам'ятала нову гру: {exe}")
+                game_now.set()
+            else:
+                game_now.clear()
         except Exception:
             pass
         time.sleep(3)

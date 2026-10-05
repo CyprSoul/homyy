@@ -1,5 +1,9 @@
 """Чи зараз гра: повноекранне вікно або процес зі списку (лише Windows)."""
+import json
 import sys
+from pathlib import Path
+
+LEARNED_FILE = Path(__file__).resolve().parent / "games.json"
 
 DEFAULT_IGNORE = {"explorer.exe", "chrome.exe", "msedge.exe", "firefox.exe", "vivaldi.exe",
                   "opera.exe", "brave.exe", "vlc.exe", "mpc-hc64.exe", "potplayermini64.exe",
@@ -64,3 +68,28 @@ def set_low_priority(low: bool):
     BELOW_NORMAL, NORMAL = 0x4000, 0x20
     k = ctypes.windll.kernel32
     k.SetPriorityClass(k.GetCurrentProcess(), BELOW_NORMAL if low else NORMAL)
+
+
+def load_learned() -> dict:
+    """Ігри й «не ігри», яких Хомі навчилась сама (або ти їй сказав)."""
+    try:
+        data = json.loads(LEARNED_FILE.read_text(encoding="utf-8"))
+        return {"games": set(data.get("games", [])), "ignore": set(data.get("ignore", []))}
+    except (OSError, ValueError):
+        return {"games": set(), "ignore": set()}
+
+
+def remember(exe: str, is_game: bool) -> bool:
+    """Записує програму як гру або як «не гру». Повертає True, якщо щось змінилось."""
+    exe = exe.lower()
+    if not exe:
+        return False
+    data = load_learned()
+    add, remove = ("games", "ignore") if is_game else ("ignore", "games")
+    if exe in data[add] and exe not in data[remove]:
+        return False
+    data[add].add(exe)
+    data[remove].discard(exe)
+    LEARNED_FILE.write_text(json.dumps({k: sorted(v) for k, v in data.items()}, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+    return True
