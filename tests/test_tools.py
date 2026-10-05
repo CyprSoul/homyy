@@ -48,3 +48,12 @@ def test_user_config_overrides_defaults(tmp_path):
     assert cfg["wake"]["min_seconds"] == 0.7 and cfg["wake"]["max_words"] == 3   # своє + стандартне
     assert cfg["apps"]["танки"] == "wot.exe" and "steam" in cfg["apps"]
     assert cfg["game"]["voice_wake"] is False and "obsidian" in cfg
+
+
+def test_unconfigured_integrations_hidden():
+    from agent.tools import Tools
+    cfg = {"apps": {}, "search": {"url": "http://x"}, "openwebui": {}}
+    names = {s["function"]["name"] for s in Tools(cfg).schemas()}
+    assert "web_search" in names and not names & {"notes_search", "money_balance", "mail_unread"}
+    cfg["monobank"] = {"token": "t"}
+    assert "money_balance" in {s["function"]["name"] for s in Tools(cfg).schemas()}

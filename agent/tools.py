@@ -32,7 +32,16 @@ class Tools(PcTools):
 
     # ---- опис для моделі -------------------------------------------------
     def schemas(self) -> list[dict]:
-        return self.base_schemas() + self.pc_schemas(_schema)
+        # Ненастроєні інтеграції не показуємо: кожен опис Gemma перечитує на кожне питання.
+        c = self.cfg
+        off = set()
+        if not c.get("obsidian", {}).get("vault"):
+            off |= {"notes_search", "notes_add"}
+        if not c.get("monobank", {}).get("token"):
+            off |= {"money_balance", "money_spending"}
+        if not (c.get("gmail", {}).get("address") and c.get("gmail", {}).get("app_password")):
+            off.add("mail_unread")
+        return [s for s in self.base_schemas() + self.pc_schemas(_schema) if s["function"]["name"] not in off]
 
     def base_schemas(self) -> list[dict]:
         apps = ", ".join(self.apps) or "немає"
