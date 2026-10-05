@@ -6,3 +6,4 @@ miniaudio>=1.59
 requests>=2.31
 PySide6-Essentials>=6.7
 pillow>=10
+onnxruntime>=1.17

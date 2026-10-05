@@ -3,3 +3,6 @@ __pycache__/
 agent/config.toml
 agent/homyy.log
 agent/games.json
+agent/models/
+agent/wake_data/
+agent/wake_model.json

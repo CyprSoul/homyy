@@ -284,6 +284,11 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     threading.Thread(target=_hotkey, args=(wake_click,), daemon=True).start()
     w = cfg["wake"]
     min_s, max_words = float(w.get("min_seconds", 0.6)), int(w.get("max_words", 3))
+    from .wakeword import Features, WakeModel
+    detector = WakeModel.load()
+    features = Features() if detector else None
+    log("👂", "Персональний детектор «Хооміі» увімкнено" if detector else
+        "Персонального детектора ще немає — навчи: python -m agent.record_wake")
 
     log("Хомі", "Готова! Поклич мене: «Хооміі». Вийти — Ctrl+C або правий клік по кульці.")
     if cfg.get("ui", {}).get("greet", True):
@@ -323,12 +328,23 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
         pcm, speech_s = seg
         if speech_s < min_s * 0.8:          # явно коротке — навіть не розпізнаємо
             continue
-        heard = stt.wake(pcm)
-        if is_wake(heard, speech_s, min_s, max_words):
-            log("почула", f"«{heard}» ({speech_s:.1f} с)")
+        if detector:
+            score = detector.score(features.vector(pcm))
+            if score < detector.threshold * 0.6:      # зовсім не схоже на твоє «Хооміі» — далі не дивимось
+                continue
+            heard = stt.wake(pcm)
+            # обидві перевірки: звучить як твоє «Хооміі» І текст схожий на «Хомі»
+            woke = score >= detector.threshold and (is_wake(heard, speech_s, 0.0, max_words) or score >= 0.97)
+            log("почула" if woke else "не те", f"«{heard}» ({speech_s:.1f} с, схожість {score:.2f})")
+        else:
+            heard = stt.wake(pcm)
+            woke = is_wake(heard, speech_s, min_s, max_words)
+            if woke:
+                log("почула", f"«{heard}» ({speech_s:.1f} с)")
+            elif "м" in collapse(heard):
+                log("не те", f"«{heard}» ({speech_s:.1f} с)")   # підказка для налаштування min_seconds
+        if woke:
             conversation(cfg, audio, stt, brain, speaker)
-        elif "м" in collapse(heard):
-            log("не те", f"«{heard}» ({speech_s:.1f} с)")   # підказка для налаштування min_seconds
 
 
 _instance_lock = None
