@@ -88,8 +88,8 @@
 ### Етап 6. Художниця 🎨
 - [x] Встановити **ComfyUI Desktop** (comfy.org), GPU: NVIDIA
 - [x] Модель **Z-Image-Turbo** (шаблон ComfyUI, ~19 ГБ): перша картинка 1024×1024 за ~8 с, макс. 63°C, ~350 Вт, до 15 ГБ VRAM
-- [ ] 16 ГБ VRAM на двох: ComfyUI тримає модель у пам'яті, і Gemma не може завантажитись (Ollama падає з CUDA error). Рішення — [`scripts/comfy-autofree.ps1`](scripts/comfy-autofree.ps1) в автозапуску: звільняє VRAM через 30 с простою ComfyUI
-- [ ] Підключити ComfyUI до Open WebUI (workflow у форматі API) → пункт 8
+- [x] 16 ГБ VRAM на двох: ComfyUI тримає модель у пам'яті, і Gemma не може завантажитись (Ollama падає з CUDA error). Рішення — [`scripts/comfy-autofree.ps1`](scripts/comfy-autofree.ps1) в автозапуску: звільняє VRAM через 30 с простою ComfyUI
+- [x] Підключити ComfyUI до Open WebUI (workflow у форматі API, [`config/comfyui/`](config/comfyui/)) → пункт 8. Малювання з чату Хомі працює (~25–30 с, коли поруч Gemma). ComfyUI відкривати лише коли треба малювати
 
 ### Етап 7. Пошта й календар 📅
 - [ ] Підключити Gmail / Google Calendar (або Outlook) через інструменти Open WebUI → пункт 11
