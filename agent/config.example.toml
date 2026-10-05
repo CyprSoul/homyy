@@ -1,0 +1,51 @@
+# Налаштування голосової Хомі. Скопіюй у config.toml і зміни під себе.
+
+[user]
+name = "Ігор"            # як Хомі до тебе звертається
+name_genitive = "Ігоря"  # «особиста помічниця Ігоря»
+
+[ollama]
+url = "http://localhost:11434"
+model = "gemma4:26b"
+num_ctx = 32768          # той самий, що в Open WebUI, щоб Ollama не перезавантажувала модель
+temperature = 0.4
+keep_alive = "30m"
+
+[stt]
+wake_model = "small"           # маленька модель — лише щоб почути «Хомі»
+model = "large-v3-turbo"       # точна модель для команд
+device = "cpu"                 # відеокарту лишаємо для Gemma
+compute_type = "int8"
+cpu_threads = 8
+language = "uk"
+
+[wake]
+min_seconds = 1.0        # «Хоооуммміііі» має тривати щонайменше стільки (звичайне «Хомі» ~0.4 с)
+max_words = 3
+follow_up_seconds = 8    # скільки чекати продовження розмови без нового «Хомі»
+
+[audio]
+input_device = ""        # порожньо = мікрофон за замовчуванням
+vad_aggressiveness = 2   # 0..3, більше = суворіше відсікає шум
+
+[tts]
+url = "http://localhost:5050/v1/audio/speech"
+api_key = "homyy"
+voice = "uk-UA-PolinaNeural"
+speed = 1.2
+
+[search]
+url = "http://localhost:8888"
+
+[openwebui]
+url = "http://localhost:3000"
+api_key = ""             # Налаштування → Обліковий запис → API-ключі. Потрібен для спільної пам'яті
+
+# Програми й сайти, які Хомі може відкривати за назвою (лише з цього списку).
+[apps]
+steam = "steam://open/main"
+youtube = "https://www.youtube.com"
+"youtube music" = "https://music.youtube.com"
+telegram = "tg://"
+блокнот = "notepad.exe"
+калькулятор = "calc.exe"

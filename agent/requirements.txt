@@ -1,0 +1,6 @@
+numpy>=1.26
+sounddevice>=0.4.6
+webrtcvad-wheels>=2.0.11
+faster-whisper>=1.1.0
+miniaudio>=1.59
+requests>=2.31
