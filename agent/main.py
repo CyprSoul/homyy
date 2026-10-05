@@ -207,11 +207,31 @@ def _watch_games(cfg: dict):
         time.sleep(3)
 
 
+def _hotkey(wake_click: threading.Event):
+    """Ctrl+Alt+H — покликати Хомі клавішами (працює й у грі, коли голосовий виклик вимкнено)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, VK_H, WM_HOTKEY = 0x1, 0x2, 0x4000, 0x48, 0x312
+    if not user32.RegisterHotKey(None, 1, MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, VK_H):
+        log("!", "Не вдалося зареєструвати Ctrl+Alt+H (зайнято іншою програмою).")
+        return
+    msg = wintypes.MSG()
+    while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+        if msg.message == WM_HOTKEY:
+            wake_click.set()
+
+
 def enter_game_mode(cfg, stt):
     global game_mode
     from .gamewatch import set_low_priority
     game_mode = True
-    log("🎮", "Гра! Звільняю відеокарту й процесор, чекаю тихо на «Хооміі».")
+    if cfg.get("game", {}).get("voice_wake", False):
+        log("🎮", "Гра! Звільняю відеокарту й процесор, чекаю тихо на «Хооміі».")
+    else:
+        log("🎮", "Гра! Хомі повністю спить: мікрофон не слухаю, відеокарта вільна. Покликати — Ctrl+Alt+H.")
     _ollama_keep(cfg, 0)
     stt.release_gpu()
     set_low_priority(True)
@@ -261,6 +281,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     if orb is not None:
         threading.Thread(target=_feed_levels, args=(orb, audio), daemon=True).start()
     threading.Thread(target=_watch_games, args=(cfg,), daemon=True).start()
+    threading.Thread(target=_hotkey, args=(wake_click,), daemon=True).start()
     w = cfg["wake"]
     min_s, max_words = float(w.get("min_seconds", 0.6)), int(w.get("max_words", 3))
 
@@ -282,6 +303,13 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
             continue
         if game_now.is_set() != game_mode:
             (enter_game_mode if game_now.is_set() else exit_game_mode)(cfg, stt)
+        if game_mode and not cfg.get("game", {}).get("voice_wake", False):
+            audio.drain()                         # у грі нічого не розпізнаємо — нуль навантаження
+            if wake_click.wait(timeout=0.5):
+                wake_click.clear()
+                log("почула", "Ctrl+Alt+H")
+                conversation(cfg, audio, stt, brain, speaker)
+            continue
         seg = audio.listen(end_silence_ms=500, max_seconds=4,
                            interrupt=lambda: wake_click.is_set() or game_now.is_set() != game_mode)
         if paused.is_set():                       # паузу ввімкнули з меню, поки слухала
