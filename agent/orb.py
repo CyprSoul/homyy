@@ -26,8 +26,8 @@ R = 40            # радіус сфери
 
 
 def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
-    from PySide6.QtCore import QPointF, Qt, QTimer
-    from PySide6.QtGui import (QBrush, QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen,
+    from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+    from PySide6.QtGui import (QColor, QFont, QPainter, QPainterPath, QPen,
                                QRadialGradient)
     from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
@@ -61,9 +61,9 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             if game == getattr(self, "_game_look", False):
                 return
             self._game_look = game
-            self.setWindowOpacity(0.55 if game else 1.0)
+            self.setWindowOpacity(0.6 if game else 1.0)
             self.setWindowFlag(Qt.WindowTransparentForInput, game)
-            self.timer.setInterval(200 if game else 16)
+            self.timer.setInterval(100 if game else 16)
             self.show()                       # після зміни прапорців вікно треба показати знову
 
         # ---- дані від голосової Хомі ----------------------------------
@@ -102,107 +102,62 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
 
         # ---- малювання ------------------------------------------------
         def paint_gamepad(self, p):
-            """Об'ємний глянцевий джойстик із фіолетовим «серцем» Хомі, що повільно дихає."""
+            """Ігровий режим: неоновий HUD-приціл у стилі сучасних шутерів.
+
+            Сегментоване кільце повільно обертається, по центру дихає фіолетове «серце» Хомі.
+            Лише тонкі лінії — майже нічого не закриває в грі.
+            """
             cx, cy = W / 2, R + 30
-            pulse = 0.5 + 0.5 * math.sin(self.phase * 2.0)
+            t = self.phase
+            pulse = 0.5 + 0.5 * math.sin(t * 2.0)
+            violet, cyan = QColor(167, 139, 250), QColor(34, 211, 238)
 
-            # тінь під джойстиком
-            sh = QRadialGradient(QPointF(cx, cy + 30), 46)
-            sh.setColorAt(0.0, QColor(0, 0, 0, 120))
-            sh.setColorAt(1.0, QColor(0, 0, 0, 0))
-            p.setPen(Qt.NoPen)
-            p.setBrush(sh)
-            p.drawEllipse(QPointF(cx, cy + 30), 46, 9)
+            def neon(draw, color, width):
+                """Неон: широка прозора «аура» + тонка яскрава лінія."""
+                for w_, a in ((width * 4.5, 40), (width * 2.2, 90), (width, 255)):
+                    c = QColor(color)
+                    c.setAlpha(a)
+                    p.setPen(QPen(c, w_, Qt.SolidLine, Qt.RoundCap))
+                    draw()
 
-            # корпус
-            body = QPainterPath()
-            body.moveTo(cx - 30, cy - 20)
-            body.cubicTo(cx - 10, cy - 24, cx + 10, cy - 24, cx + 30, cy - 20)
-            body.cubicTo(cx + 44, cy - 20, cx + 47, cy - 8, cx + 45, cy + 6)
-            body.cubicTo(cx + 43, cy + 22, cx + 37, cy + 29, cx + 28, cy + 27)
-            body.cubicTo(cx + 20, cy + 25, cx + 16, cy + 13, cx + 10, cy + 11)
-            body.lineTo(cx - 10, cy + 11)
-            body.cubicTo(cx - 16, cy + 13, cx - 20, cy + 25, cx - 28, cy + 27)
-            body.cubicTo(cx - 37, cy + 29, cx - 43, cy + 22, cx - 45, cy + 6)
-            body.cubicTo(cx - 47, cy - 8, cx - 44, cy - 20, cx - 30, cy - 20)
-            fill = QLinearGradient(QPointF(cx, cy - 24), QPointF(cx, cy + 29))
-            fill.setColorAt(0.0, QColor(92, 99, 120))
-            fill.setColorAt(0.35, QColor(48, 52, 66))
-            fill.setColorAt(1.0, QColor(18, 20, 27))
-            p.setBrush(fill)
-            p.drawPath(body)
-
-            # глянцевий відблиск зверху
-            p.save()
-            p.setClipPath(body)
-            gl = QLinearGradient(QPointF(cx, cy - 24), QPointF(cx, cy - 4))
-            gl.setColorAt(0.0, QColor(255, 255, 255, 90))
-            gl.setColorAt(1.0, QColor(255, 255, 255, 0))
-            p.setBrush(gl)
-            p.drawEllipse(QPointF(cx, cy - 18), 40, 12)
-            p.restore()
-
-            # обвідка-кант
-            rim = QLinearGradient(QPointF(cx, cy - 24), QPointF(cx, cy + 29))
-            rim.setColorAt(0.0, QColor(200, 205, 225, 160))
-            rim.setColorAt(1.0, QColor(0, 0, 0, 160))
-            p.setPen(QPen(QBrush(rim), 1.2))
             p.setBrush(Qt.NoBrush)
-            p.drawPath(body)
+            # зовнішнє кільце з 4 сегментів, повільно обертається
+            r1 = 34
+            rect1 = QRectF(cx - r1, cy - r1, 2 * r1, 2 * r1)
+            spin = (t * 25) % 360
+            for k in range(4):
+                start = int((spin + k * 90 + 12) * 16)
+                neon(lambda st=start: p.drawArc(rect1, st, 66 * 16), violet, 1.6)
+
+            # внутрішнє тонке кільце обертається назустріч, бірюзове
+            r2 = 22
+            rect2 = QRectF(cx - r2, cy - r2, 2 * r2, 2 * r2)
+            spin2 = (-t * 40) % 360
+            for k in range(3):
+                start = int((spin2 + k * 120) * 16)
+                neon(lambda st=start: p.drawArc(rect2, st, 70 * 16), cyan, 1.0)
+
+            # риски прицілу
+            for ang in (0, 90, 180, 270):
+                a = math.radians(ang)
+                x1, y1 = cx + 40 * math.cos(a), cy + 40 * math.sin(a)
+                x2, y2 = cx + 47 * math.cos(a), cy + 47 * math.sin(a)
+                neon(lambda x1=x1, y1=y1, x2=x2, y2=y2: p.drawLine(QPointF(x1, y1), QPointF(x2, y2)),
+                     violet, 1.4)
+
+            # серце Хомі
             p.setPen(Qt.NoPen)
-
-            def stick(x, y, r):
-                well = QRadialGradient(QPointF(x, y), r + 2.5)
-                well.setColorAt(0.6, QColor(8, 9, 12))
-                well.setColorAt(1.0, QColor(8, 9, 12, 0))
-                p.setBrush(well)
-                p.drawEllipse(QPointF(x, y), r + 2.5, r + 2.5)
-                cap = QRadialGradient(QPointF(x - r * 0.35, y - r * 0.4), r * 1.4)
-                cap.setColorAt(0.0, QColor(130, 137, 158))
-                cap.setColorAt(0.5, QColor(52, 56, 70))
-                cap.setColorAt(1.0, QColor(22, 24, 31))
-                p.setBrush(cap)
-                p.drawEllipse(QPointF(x, y), r, r)
-
-            stick(cx - 25, cy - 6, 6.5)          # лівий стік
-            stick(cx + 12, cy + 4, 5.8)          # правий стік
-
-            # хрестовина
-            dx, dy = cx - 12, cy + 4
-            cross = QPainterPath()
-            cross.addRoundedRect(dx - 7, dy - 2.4, 14, 4.8, 1.5, 1.5)
-            cross.addRoundedRect(dx - 2.4, dy - 7, 4.8, 14, 1.5, 1.5)
-            cg = QLinearGradient(QPointF(dx, dy - 7), QPointF(dx, dy + 7))
-            cg.setColorAt(0.0, QColor(96, 102, 122))
-            cg.setColorAt(1.0, QColor(26, 28, 36))
-            p.setBrush(cg)
-            p.drawPath(cross.simplified())
-
-            # кнопки A B X Y
-            bx, by = cx + 26, cy - 6
-            for ox, oy, col in ((0, 5.5, (34, 197, 94)), (5.5, 0, (239, 68, 68)),
-                                (-5.5, 0, (59, 130, 246)), (0, -5.5, (245, 158, 11))):
-                x, y = bx + ox, by + oy
-                g = QRadialGradient(QPointF(x - 1, y - 1.2), 4.2)
-                g.setColorAt(0.0, QColor(255, 255, 255, 230))
-                g.setColorAt(0.35, QColor(*col))
-                g.setColorAt(1.0, QColor(int(col[0] * 0.4), int(col[1] * 0.4), int(col[2] * 0.4)))
-                p.setBrush(g)
-                p.drawEllipse(QPointF(x, y), 3.1, 3.1)
-
-            # фіолетове «серце» Хомі по центру
-            hx, hy = cx, cy - 10
-            glow = QRadialGradient(QPointF(hx, hy), 10 + 4 * pulse)
-            glow.setColorAt(0.0, QColor(167, 139, 250, int(150 + 80 * pulse)))
+            glow = QRadialGradient(QPointF(cx, cy), 12 + 5 * pulse)
+            glow.setColorAt(0.0, QColor(167, 139, 250, int(170 + 70 * pulse)))
             glow.setColorAt(1.0, QColor(139, 92, 246, 0))
             p.setBrush(glow)
-            p.drawEllipse(QPointF(hx, hy), 10 + 4 * pulse, 10 + 4 * pulse)
-            core = QRadialGradient(QPointF(hx - 1, hy - 1.2), 4)
+            p.drawEllipse(QPointF(cx, cy), 12 + 5 * pulse, 12 + 5 * pulse)
+            core = QRadialGradient(QPointF(cx - 1, cy - 1.2), 4.5)
             core.setColorAt(0.0, QColor(255, 255, 255))
-            core.setColorAt(0.4, QColor(196, 181, 253))
+            core.setColorAt(0.45, QColor(196, 181, 253))
             core.setColorAt(1.0, QColor(124, 58, 237))
             p.setBrush(core)
-            p.drawEllipse(QPointF(hx, hy), 3.4, 3.4)
+            p.drawEllipse(QPointF(cx, cy), 3.8, 3.8)
 
         def paintEvent(self, _):
             p = QPainter(self)
