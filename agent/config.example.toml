@@ -68,3 +68,10 @@ vault = ""               # шлях до сховища Obsidian, наприкл
 [telegram]
 token = ""               # токен від @BotFather
 allowed_ids = []         # твій Telegram ID (бот підкаже його, якщо написати йому)
+
+[monobank]
+token = ""               # особистий токен з https://api.monobank.ua/ (лише читання)
+
+[gmail]
+address = ""             # твоя адреса Gmail
+app_password = ""        # пароль застосунку (Google-акаунт → Безпека → Паролі застосунків), НЕ звичайний пароль

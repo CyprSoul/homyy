@@ -68,6 +68,10 @@ class Tools(PcTools):
                     {"query": {"type": "string"}}, ["query"]),
             _schema("notes_add", "Записати нотатку в Obsidian (у файл «Хомі.md» у сховищі нотаток).",
                     {"text": {"type": "string"}}, ["text"]),
+            _schema("money_balance", "Баланс картки Monobank."),
+            _schema("money_spending", "Скільки витрачено за останні N днів і на що (Monobank).",
+                    {"days": {"type": "integer", "description": "1–31"}}, ["days"]),
+            _schema("mail_unread", "Нові (непрочитані) листи в Gmail: від кого й про що."),
             _schema("open_website", "Відкрити сайт у браузері.",
                     {"url": {"type": "string", "description": "Повна адреса https://…"}}, ["url"]),
         ]
@@ -219,3 +223,27 @@ class Tools(PcTools):
         with open(vault / "Хомі.md", "a", encoding="utf-8") as f:
             f.write(f"\n- {datetime.now():%Y-%m-%d %H:%M} — {text.strip()}")
         return "Записала в нотатку «Хомі»."
+
+    def _mono(self):
+        from .services import Monobank
+        token = self.cfg.get("monobank", {}).get("token", "")
+        if not token:
+            return None
+        if not hasattr(self, "_mono_client"):
+            self._mono_client = Monobank(token)
+        return self._mono_client
+
+    def _t_money_balance(self) -> str:
+        m = self._mono()
+        return m.balance() if m else "Monobank не підключений: додай токен у config.toml, розділ [monobank]."
+
+    def _t_money_spending(self, days: int = 30) -> str:
+        m = self._mono()
+        return m.spending(days) if m else "Monobank не підключений: додай токен у config.toml, розділ [monobank]."
+
+    def _t_mail_unread(self) -> str:
+        from .services import Gmail
+        g = self.cfg.get("gmail", {})
+        if not g.get("address") or not g.get("app_password"):
+            return "Gmail не підключений: додай адресу й пароль застосунку в config.toml, розділ [gmail]."
+        return Gmail(g["address"], g["app_password"]).unread()
