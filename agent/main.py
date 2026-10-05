@@ -4,7 +4,6 @@
 """
 import os
 import random
-import signal
 import sys
 import threading
 import time
@@ -20,6 +19,9 @@ LOG_FILE = AGENT_DIR / "homyy.log"
 
 class NoUI:
     def set_state(self, state: str):
+        pass
+
+    def set_level(self, level: float):
         pass
 
 
@@ -113,7 +115,14 @@ def conversation(cfg, audio, stt, brain, speaker):
         timeout = float(w.get("follow_up_seconds", 8))
 
 
-def voice_loop(cfg: dict, wake_click: threading.Event):
+def _feed_levels(orb, audio):
+    """20 разів на секунду передає сфері гучність, щоб вона «жила» в такт голосу."""
+    while True:
+        orb.set_level(audio.level())
+        time.sleep(0.05)
+
+
+def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     wait_for_ollama(cfg)
     check_services(cfg)
 
@@ -126,6 +135,8 @@ def voice_loop(cfg: dict, wake_click: threading.Event):
     audio = Audio(cfg)
     brain = Brain(cfg)
     speaker = Speaker(cfg, audio)
+    if orb is not None:
+        threading.Thread(target=_feed_levels, args=(orb, audio), daemon=True).start()
     w = cfg["wake"]
     min_s, max_words = float(w.get("min_seconds", 0.6)), int(w.get("max_words", 3))
 
@@ -154,15 +165,6 @@ def voice_loop(cfg: dict, wake_click: threading.Event):
             log("не те", f"«{heard}» ({speech_s:.1f} с)")   # підказка для налаштування min_seconds
 
 
-def _guarded(cfg, wake_click):
-    try:
-        voice_loop(cfg, wake_click)
-    except Exception:
-        ui.set_state("error")
-        log("помилка", traceback.format_exc())
-        raise
-
-
 def main():
     global ui
     if hasattr(sys.stdout, "reconfigure"):
@@ -175,22 +177,33 @@ def main():
         return
 
     try:
-        from .widget import Widget
-        widget = Widget(on_click=wake_click.set, on_quit=lambda: os._exit(0),
-                        position=cfg.get("ui", {}).get("position", "bottom-right"))
-    except Exception as e:   # немає графіки — працюємо без віджета
-        log("!", f"Віджет не запустився ({e}), працюю без нього.")
+        from .orb import OrbClient
+        orb = OrbClient(position=cfg.get("ui", {}).get("position", "bottom-right"))
+    except Exception as e:   # немає Qt — працюємо без сфери
+        log("!", f"Сфера не запустилася ({e}), працюю без неї.")
         voice_loop(cfg, wake_click)
         return
 
-    ui = widget
-    signal.signal(signal.SIGINT, lambda *_: os._exit(0))   # Ctrl+C у консолі теж вимикає Хомі
-    threading.Thread(target=_guarded, args=(cfg, wake_click), daemon=True).start()
+    ui = orb
+    threading.Thread(target=_orb_events, args=(orb, wake_click), daemon=True).start()
     try:
-        widget.mainloop()
-    except KeyboardInterrupt:
-        pass
-    os._exit(0)
+        voice_loop(cfg, wake_click, orb)
+    except Exception:
+        ui.set_state("error")               # сфера червоніє — видно, що щось зламалось
+        log("помилка", traceback.format_exc())
+        time.sleep(5)
+        raise
+
+
+def _orb_events(orb, wake_click: threading.Event):
+    """Клік по сфері — покликати Хомі; «Вимкнути» в меню — вийти."""
+    while True:
+        event = orb.next_event(timeout=1.0)
+        if event == "click":
+            wake_click.set()
+        elif event == "quit" or not orb.alive():
+            log("Хомі", "Вимикаюсь. Бувай!")
+            os._exit(0)
 
 
 if __name__ == "__main__":

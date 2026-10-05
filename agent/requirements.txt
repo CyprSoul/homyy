@@ -4,3 +4,4 @@ webrtcvad-wheels>=2.0.11
 faster-whisper>=1.1.0
 miniaudio>=1.59
 requests>=2.31
+PySide6-Essentials>=6.7

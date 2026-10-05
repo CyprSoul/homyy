@@ -1,6 +1,7 @@
 """Мікрофон, розпізнавання моменту мовлення (VAD) і відтворення звуку."""
 import collections
 import queue
+import time
 
 import numpy as np
 import sounddevice as sd
@@ -16,11 +17,28 @@ class Audio:
         a = cfg.get("audio", {})
         self.vad = webrtcvad.Vad(int(a.get("vad_aggressiveness", 2)))
         self.frames: queue.Queue[bytes] = queue.Queue()
+        self.mic_level = 0.0
+        self._play_env = None            # (час старту, гучність по 50 мс) того, що зараз звучить
         device = a.get("input_device") or None
         self.stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16",
                                         blocksize=FRAME_SAMPLES, device=device,
-                                        callback=lambda data, *_: self.frames.put(bytes(data)))
+                                        callback=self._on_audio)
         self.stream.start()
+
+    def _on_audio(self, data, *_):
+        raw = bytes(data)
+        self.frames.put(raw)
+        x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+        self.mic_level = float(np.sqrt(np.mean(x * x)) / 32768.0)
+
+    def level(self) -> float:
+        """Гучність 0..1 для «живої сфери»: голос Хомі, коли вона говорить, інакше мікрофон."""
+        env = self._play_env
+        if env:
+            start, values = env
+            i = int((time.time() - start) / 0.05)
+            return float(values[i]) if i < len(values) else 0.0
+        return min(1.0, self.mic_level * 8)
 
     def drain(self):
         """Викидає все, що мікрофон записав, поки Хомі говорила (щоб не слухати саму себе)."""
@@ -76,10 +94,18 @@ class Audio:
                 pcm = np.frombuffer(b"".join(recording), dtype=np.int16)
                 return pcm, speech_frames_total * FRAME_MS / 1000
 
-    @staticmethod
-    def play(samples: np.ndarray, rate: int):
+    def play(self, samples: np.ndarray, rate: int):
+        x = samples.astype(np.float32)
+        if samples.dtype == np.int16:
+            x /= 32768.0
+        chunk = max(1, int(rate * 0.05))
+        n = len(x) // chunk
+        env = np.sqrt(np.mean(x[:n * chunk].reshape(n, chunk) ** 2, axis=1)) if n else np.zeros(0)
+        peak = float(env.max()) if len(env) else 0.0
+        self._play_env = (time.time(), env / peak if peak > 0 else env)
         sd.play(samples, rate)
         sd.wait()
+        self._play_env = None
 
     def beep(self, up: bool = True):
         """Короткий сигнал: угору — «слухаю», донизу — «закінчила слухати»."""
