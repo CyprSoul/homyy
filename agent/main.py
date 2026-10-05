@@ -30,9 +30,15 @@ class UI:
         if self.orb:
             self.orb.set_state(state)
 
+    def set_visible(self, visible: bool):
+        if self.orb:
+            self.orb.set_visible(visible)
+
 
 ui = UI()
 paused = threading.Event()
+game_now = threading.Event()        # гра зараз на екрані (ставить спостерігач)
+game_mode = False                   # чи Хомі вже перейшла в ігровий режим
 
 
 def log(who: str, text: str):
@@ -111,8 +117,9 @@ def pause(audio):
 
 def resume():
     paused.clear()
-    threading.Thread(target=_ollama_keep, args=(CFG, CFG["ollama"].get("keep_alive", "24h")),
-                     daemon=True).start()
+    if not game_mode:                    # у грі Gemma прокинеться лише на «Хооміі»
+        threading.Thread(target=_ollama_keep, args=(CFG, CFG["ollama"].get("keep_alive", "24h")),
+                         daemon=True).start()
     ui.set_state("sleep")
     log("▶️", "Знову слухаю «Хооміі».")
 
@@ -127,6 +134,14 @@ def speak(speaker, audio, text: str):
 
 
 def conversation(cfg, audio, stt, brain, speaker):
+    try:
+        _conversation(cfg, audio, stt, brain, speaker)
+    finally:
+        if game_mode:                    # після розмови в грі знову звільняємо відеокарту
+            threading.Thread(target=_ollama_keep, args=(cfg, 0), daemon=True).start()
+
+
+def _conversation(cfg, audio, stt, brain, speaker):
     w = cfg["wake"]
     ui.set_state("speak")
     try:
@@ -155,6 +170,8 @@ def conversation(cfg, audio, stt, brain, speaker):
             pause(audio)
             return
         ui.set_state("think")
+        if game_mode:
+            log("🎮", "Gemma прокидається з ігрового режиму (до ~20 с)")
         t_llm = time.time()
         try:
             answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
@@ -165,6 +182,47 @@ def conversation(cfg, audio, stt, brain, speaker):
         speak(speaker, audio, answer)
         audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
         timeout = float(w.get("follow_up_seconds", 8))
+
+
+def _watch_games(cfg: dict):
+    """Раз на 3 секунди дивиться, чи на екрані гра."""
+    from .gamewatch import DEFAULT_IGNORE, classify, foreground
+    g = cfg.get("game", {})
+    if not g.get("enabled", True):
+        return
+    games = {x.lower() for x in g.get("processes", [])}
+    ignore = DEFAULT_IGNORE | {x.lower() for x in g.get("ignore", [])}
+    while True:
+        try:
+            exe, full = foreground()
+            game_now.set() if classify(exe, full, games, ignore) else game_now.clear()
+        except Exception:
+            pass
+        time.sleep(3)
+
+
+def enter_game_mode(cfg, stt):
+    global game_mode
+    from .gamewatch import set_low_priority
+    game_mode = True
+    log("🎮", "Гра! Звільняю відеокарту й процесор, чекаю тихо на «Хооміі».")
+    _ollama_keep(cfg, 0)
+    stt.release_gpu()
+    set_low_priority(True)
+    ui.set_visible(False)
+
+
+def exit_game_mode(cfg, stt):
+    global game_mode
+    from .gamewatch import set_low_priority
+    game_mode = False
+    log("🎮", "Гру закрито — повертаюсь у повну силу.")
+    set_low_priority(False)
+    if cfg["stt"].get("device", "auto") in ("auto", "cuda"):
+        stt.load_gpu()
+    _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
+    ui.set_visible(True)
+    ui.set_state("sleep")
 
 
 def _feed_levels(orb, audio):
@@ -196,6 +254,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     speaker = Speaker(cfg, audio)
     if orb is not None:
         threading.Thread(target=_feed_levels, args=(orb, audio), daemon=True).start()
+    threading.Thread(target=_watch_games, args=(cfg,), daemon=True).start()
     w = cfg["wake"]
     min_s, max_words = float(w.get("min_seconds", 0.6)), int(w.get("max_words", 3))
 
@@ -215,12 +274,17 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
                 resume()
                 sleep_state_logged = True
             continue
-        seg = audio.listen(end_silence_ms=500, max_seconds=4, interrupt=wake_click)
+        if game_now.is_set() != game_mode:
+            (enter_game_mode if game_now.is_set() else exit_game_mode)(cfg, stt)
+        seg = audio.listen(end_silence_ms=500, max_seconds=4,
+                           interrupt=lambda: wake_click.is_set() or game_now.is_set() != game_mode)
         if paused.is_set():                       # паузу ввімкнули з меню, поки слухала
             continue
         if seg == "interrupt":
-            log("почула", "клік по кульці")
-            conversation(cfg, audio, stt, brain, speaker)
+            if wake_click.is_set():
+                wake_click.clear()
+                log("почула", "клік по кульці")
+                conversation(cfg, audio, stt, brain, speaker)
             continue
         pcm, speech_s = seg
         if speech_s < min_s * 0.8:          # явно коротке — навіть не розпізнаємо

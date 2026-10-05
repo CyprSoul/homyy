@@ -51,7 +51,7 @@ class Audio:
 
         Повертає (int16-масив, тривалість мовлення в секундах), None — якщо за
         start_timeout_s ніхто нічого не сказав, або "interrupt" — якщо до початку
-        мовлення спрацювала подія interrupt (клік по віджету).
+        мовлення interrupt() повернула True (клік по сфері, початок/кінець гри).
         """
         pre_roll = collections.deque(maxlen=10)            # 300 мс до початку мовлення
         start_frames_needed = 3                            # 90 мс мовлення = старт
@@ -69,8 +69,7 @@ class Audio:
             is_speech = self.vad.is_speech(frame, RATE)
 
             if not recording:
-                if interrupt is not None and interrupt.is_set():
-                    interrupt.clear()
+                if interrupt is not None and interrupt():
                     return "interrupt"
                 waited += 1
                 pre_roll.append(frame)

@@ -50,9 +50,9 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             self.phase = 0.0
             self.last = time.perf_counter()
             self.drag = None
-            timer = QTimer(self)
-            timer.timeout.connect(self.step)
-            timer.start(16)
+            self.timer = QTimer(self)
+            self.timer.timeout.connect(self.step)
+            self.timer.start(16)
 
         # ---- дані від голосової Хомі ----------------------------------
         def step(self):
@@ -63,6 +63,13 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
                         self.state = value
                     elif kind == "level":
                         self.level += (min(1.0, value) - self.level) * 0.5
+                    elif kind == "visible":           # під час гри сфера ховається й не малює
+                        if value:
+                            self.show()
+                            self.timer.setInterval(16)
+                        else:
+                            self.hide()
+                            self.timer.setInterval(400)
                     elif kind == "quit":
                         QApplication.quit()
                         return
@@ -77,7 +84,8 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             self.wobble += (wobble - self.wobble) * k
             self.level *= 0.92
             self.phase += dt * self.speed * (1 + 2 * self.level)
-            self.update()
+            if self.isVisible():
+                self.update()
 
         # ---- малювання ------------------------------------------------
         def paintEvent(self, _):
@@ -200,6 +208,9 @@ class OrbClient:
 
     def set_level(self, level: float):
         self.cmd_q.put(("level", float(level)))
+
+    def set_visible(self, visible: bool):
+        self.cmd_q.put(("visible", bool(visible)))
 
     def next_event(self, timeout: float):
         try:
