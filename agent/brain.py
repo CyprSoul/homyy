@@ -1,6 +1,6 @@
 """Мозок: Gemma через Ollama з характером Хомі, пам'яттю й інструментами."""
 import time
-from datetime import date
+from datetime import date, datetime
 
 import requests
 
@@ -51,7 +51,8 @@ class Brain:
         prompt = (self.prompt_template
                   .replace("{{USER_NAME}}", user.get("name_genitive", user["name"]))
                   .replace("{{CURRENT_DATE}}", ukr_date(date.today())))
-        prompt += "\n" + VOICE_RULES
+        prompt += f"\nЗараз {datetime.now():%H:%M} — на питання «котра година» відповідай одразу, без інструментів.\n"
+        prompt += VOICE_RULES
         memories = self._memories()
         if memories:
             prompt += "\nЩО ТИ ЗНАЄШ ПРО МЕНЕ (з пам'яті)\n" + "\n".join(f"- {m}" for m in memories)
