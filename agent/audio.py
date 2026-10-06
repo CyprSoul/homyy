@@ -37,12 +37,13 @@ class DoubleTalk:
         ratio = mic_rms / ref_rms
         if self.est is None:
             self.est = ratio
-            return False
+        # Звична луна — «нижня межа» частки: швидко вниз, повільно вгору. Так перший кадр із ТВОЇМ
+        # голосом (у навушниках луни нема) не стає «нормою», і твоя мова поверх Хомі помітна.
+        self.est = ratio if ratio < self.est else 0.98 * self.est + 0.02 * ratio
         if ratio > self.factor * self.est and mic_rms > self.floor:
             self.run += 1
         else:
             self.run = 0
-            self.est = 0.9 * self.est + 0.1 * ratio
         return self.run >= self.frames_needed
 
 

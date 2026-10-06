@@ -19,7 +19,7 @@ from .config import AGENT_DIR, load_config, ollama_options
 from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
-                   wants_selection, window_intent)
+                   wants_selection, window_intent, foreign_speech)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -166,7 +166,7 @@ def _hear(cfg, audio, stt, timeout: float, first=None):
     first = (звук, текст) — фраза вже почута разом із «Хомі» («Хомі, я хочу…»): лише дослухаємо.
     """
     w = cfg["wake"]
-    silence = int(w.get("command_silence_ms", 700))
+    silence = int(w.get("command_silence_ms", 800))
 
     def recognize(pcm):
         text = stt.command(pcm)
@@ -201,7 +201,7 @@ def _hear(cfg, audio, stt, timeout: float, first=None):
     return text, t_said, stt_s
 
 
-def speak_listening(cfg, speaker, audio, stt, text: str):
+def speak_listening(cfg, speaker, audio, stt, text: str, asked: str = ""):
     """Говорить і водночас слухає, чи ти її не перебиваєш. Два способи:
     1) заговорив поверх неї (мікрофон помітно гучніший за луну її голосу) — замовкає й слухає;
     2) почула «стоп», «почекай», «Хомі…» або «стоп, а яка погода?».
@@ -230,8 +230,17 @@ def speak_listening(cfg, speaker, audio, stt, text: str):
                 log("✋", f"перебив словом: «{heard}»")
                 audio.stop_playback()
                 return
+            if foreign_speech(heard, text):
+                # ти говориш поверх неї (не луна її голосу) — замовкає й слухає. Якщо почав одразу
+                # після її першого речення — найімовірніше, ти просто договорюєш попередню думку.
+                early = time.time() - started < 8
+                result["req"] = f"{asked} {heard}".strip() if early and asked else heard
+                log("✋", f"говориш поверх мене: «{heard}» — замовкаю")
+                audio.stop_playback()
+                return
             log("👂", f"під час мови чую: «{heard}»")     # луна її голосу чи щось інше — для налаштування
 
+    started = time.time()
     if hasattr(audio, "arm_barge_in"):
         audio.arm_barge_in(True)
     t = threading.Thread(target=monitor, daemon=True)
@@ -347,7 +356,7 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
             log("⏱", st)
         speaker.first_audio_at = None
         t_voice = time.time()
-        req = speak_listening(cfg, speaker, audio, stt, answer)
+        req = speak_listening(cfg, speaker, audio, stt, answer, asked=text)
         if speaker.first_audio_at:
             log("⏱", f"від кінця твоєї фрази до голосу {speaker.first_audio_at - t_said:.1f} с "
                      f"(розпізнала {stt_s:.1f}, думала {t_voice - t_llm:.1f}, "
@@ -477,10 +486,20 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     ready_voice.set()
 
     def remind(text: str):
-        log("⏰", text)
-        audio.beep(up=True)
+        log("⏰", f"час нагадати: {text}")
+        # посеред розмови не перебиваємо — чекаємо, поки Хомі договорить і дослухає (до 40 с)
+        for _ in range(80):
+            if ui.state in ("sleep", "game", "paused"):
+                break
+            time.sleep(0.5)
         prev = ui.state
-        speak(speaker, audio, text)
+        try:
+            audio.beep(up=True)
+            audio.beep(up=True)              # подвійний сигнал — щоб нагадування не злилося з розмовою
+            speak(speaker, audio, text)
+            log("⏰", "сказала вголос")
+        except Exception as e:
+            log("помилка нагадування", str(e))
         ui.set_state(prev)
     brain.tools.on_reminder = remind
 

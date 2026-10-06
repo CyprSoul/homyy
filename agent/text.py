@@ -337,3 +337,12 @@ def window_intent(transcript: str):
 def wants_selection(transcript: str) -> bool:
     """«Переклади виділене», «що означає виділений текст» — працюємо з виділеним текстом."""
     return bool(re.search(r"виділ\w*", transcript.lower()))
+
+
+def foreign_speech(heard: str, speaking: str) -> bool:
+    """Мікрофон чує не луну Хомі, а людину: ≥3 слова, і майже жодного з того, що Хомі зараз каже."""
+    words = collapse(heard).replace("'", "").split()
+    if len(words) < 3:
+        return False
+    own = set(collapse(speaking).replace("'", "").split())
+    return sum(w in own for w in words) / len(words) < 0.3

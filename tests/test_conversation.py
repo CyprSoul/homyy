@@ -77,3 +77,26 @@ def test_talking_over_her_stops_and_listens(monkeypatch):
     audio = VoiceOverAudio()
     req = main.speak_listening({"wake": {}}, FakeSpeaker(audio), audio, SilentSTT(), "Довга відповідь.")
     assert req == ""
+
+
+def test_double_talk_with_headphones_first_frame_is_you():
+    from agent.audio import DoubleTalk
+    dt = DoubleTalk(frames_needed=3)
+    # у навушниках луни нема: мікрофон тихий, поки ти мовчиш…
+    for _ in range(10):
+        dt.update(0.012, 0.2, True)
+    hits = [dt.update(0.2, 0.2, True) for _ in range(3)]       # …і ти заговорив
+    assert hits[-1]
+
+
+class TalkOverSTT:
+    def command(self, pcm):
+        return "Типу, я хочу зробити класну сферу, яка ворушиться"
+
+
+def test_talking_over_continues_previous_request(monkeypatch):
+    monkeypatch.setattr(main, "log", lambda *a: None)
+    audio = FakeAudio()
+    req = main.speak_listening({"wake": {}}, FakeSpeaker(audio), audio, TalkOverSTT(),
+                               "Сфера — це геометрична фігура.", asked="Пошукай в інтернеті сферу.")
+    assert req == "Пошукай в інтернеті сферу. Типу, я хочу зробити класну сферу, яка ворушиться"
