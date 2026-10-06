@@ -22,6 +22,32 @@ _VK = {"pause": 0xB3, "play": 0xB3, "play_pause": 0xB3, "next": 0xB0, "previous"
        "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD}
 
 
+_APPS_CACHE: dict = {"time": 0.0, "apps": {}}
+_SKIP_APP = ("uninstall", "видалити", "readme", "help", "documentation", "website", "manual", "license",
+             "release notes", "довідка", "деінсталя")
+
+
+def installed_apps() -> dict[str, str]:
+    """Програми й ігри з меню «Пуск» (ярлики .lnk і .url, зокрема ігри Steam): назва → ярлик."""
+    import time as _time
+    if _time.time() - _APPS_CACHE["time"] < 600:
+        return _APPS_CACHE["apps"]
+    roots = [Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "Microsoft/Windows/Start Menu/Programs",
+             Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs",
+             Path.home() / "Desktop", Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"]
+    apps: dict[str, str] = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for f in list(root.rglob("*.lnk")) + list(root.rglob("*.url")):
+            if any(d in f.parts for d in ("Administrative Tools", "Windows Tools")):
+                continue                   # системні адмін-інструменти голосом не відкриваємо
+            if not any(w in f.stem.lower() for w in _SKIP_APP):
+                apps.setdefault(f.stem, str(f))
+    _APPS_CACHE.update(time=_time.time(), apps=apps)
+    return apps
+
+
 def _smtc(action: str) -> str | None:
     """Плеєр Windows (те, що показує панель гучності: YouTube у браузері, Spotify…).
 
@@ -114,8 +140,9 @@ class Tools(PcTools):
                     {"action": {"type": "string", "enum": list(_VK)},
                      "times": {"type": "integer", "description": "Скільки разів натиснути (для гучності)"}},
                     ["action"]),
-            _schema("open_app", f"Відкрити програму чи сайт зі списку: {apps}.",
-                    {"name": {"type": "string"}}, ["name"]),
+            _schema("open_app", "Відкрити будь-яку встановлену програму чи гру (Discord, Telegram, Chrome, "
+                    f"World of Tanks, OBS…) — Хомі знайде її в меню «Пуск»; а також: {apps}.",
+                    {"name": {"type": "string", "description": "Назва, як її сказали"}}, ["name"]),
             _schema("mark_game", "Позначити програму, яка зараз на екрані, як гру (у ній Хомі звільняє "
                     "відеокарту) або як НЕ гру. Коли кажуть «це гра» / «це не гра».",
                     {"is_game": {"type": "boolean"}}, ["is_game"]),
@@ -233,11 +260,20 @@ class Tools(PcTools):
 
     def _t_open_app(self, name: str) -> str:
         target = self.apps.get(name.lower().strip())
-        if not target:
-            return f"Такої програми немає в списку. Доступні: {', '.join(self.apps)}."
-        if sys.platform == "win32":
-            os.startfile(target)
-        return f"Відкрила {name}."
+        if target:
+            if sys.platform == "win32":
+                os.startfile(target)
+            return f"Відкрила {name}."
+        from .screen import app_similarity
+        installed = installed_apps()
+        ranked = sorted(((app_similarity(name, n), n) for n in installed), reverse=True)
+        if ranked and ranked[0][0] >= 0.8:
+            found = ranked[0][1]
+            if sys.platform == "win32":
+                os.startfile(installed[found])
+            return f"Відкрила {found}."
+        close = ", ".join(n for _, n in ranked[:3])
+        return f"Не знайшла програми «{name}» серед встановлених." + (f" Схожі: {close}." if close else "")
 
     def _t_open_website(self, url: str) -> str:
         if not url.startswith(("http://", "https://")):

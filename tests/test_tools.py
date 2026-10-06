@@ -12,7 +12,9 @@ def test_schemas_valid():
 def test_unknown_and_safe_failures():
     t = Tools(CFG)
     assert "Невідомий" in t.call("rm_rf", {})
-    assert "немає в списку" in t.call("open_app", {"name": "regedit"})
+    import agent.tools as tools_mod
+    tools_mod._APPS_CACHE.update(time=9e18, apps={})
+    assert "Не знайшла" in t.call("open_app", {"name": "regedit"})
     assert "http" in t.call("open_website", {"url": "file:///C:/Windows"})
     assert "не підключена" in t.call("remember", {"fact": "x"})
     assert "6, \"days\": 17" in t.call("date_difference", {"from_date": "2026-03-18", "to_date": "2026-10-05"})
@@ -71,3 +73,15 @@ def test_play_music(monkeypatch):
     assert opened[-1] == "https://music.youtube.com/watch?v=dQw4w9WgXcQ"
     monkeypatch.setattr(Tools, "_first_video", staticmethod(lambda q: None))
     assert "натиснути" in t.call("play_music", {"query": "щось"})
+
+
+def test_open_any_installed_app(monkeypatch):
+    from agent import tools
+    t = tools.Tools({"apps": {"блокнот": "notepad.exe"}, "search": {"url": "http://x"}, "openwebui": {}})
+    monkeypatch.setattr(tools, "installed_apps", lambda: {"Discord": "d.lnk", "Steam": "s.lnk",
+                                                         "Telegram Desktop": "t.lnk", "World of Tanks": "w.url"})
+    assert t.call("open_app", {"name": "дискорд"}) == "Відкрила Discord."
+    assert t.call("open_app", {"name": "телеграм"}) == "Відкрила Telegram Desktop."
+    assert t.call("open_app", {"name": "ворлд оф танкс"}) == "Відкрила World of Tanks."
+    assert t.call("open_app", {"name": "блокнот"}) == "Відкрила блокнот."
+    assert "Не знайшла" in t.call("open_app", {"name": "фотошоп"})

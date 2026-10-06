@@ -35,6 +35,27 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def app_similarity(spoken: str, name: str) -> float:
+    """Назва програми на слух («дискорд», «стім», «телеграм») проти справжньої («Discord», «Steam»,
+    «Telegram Desktop»): латиницею й «за звучанням» (y=i, h=g, c=k…)."""
+    def phon(t: str) -> str:
+        t = norm(t)
+        for a, b in (("ph", "f"), ("ea", "i"), ("ee", "i"), ("x", "ks"), ("q", "k"),
+                     ("c", "k"), ("y", "i"), ("h", "g"), ("w", "v")):
+            t = t.replace(a, b)
+        return t
+    a, b = phon(spoken), phon(name)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    if len(a) >= 4 and a in b:
+        return 0.9
+    if len(a) >= 3 and any(phon(w).startswith(a) for w in name.split()):
+        return 0.85
+    return SequenceMatcher(None, a, b).ratio()
+
+
 def best_match(target: str, words: list[tuple[str, tuple[float, float, float, float]]]):
     """words — (текст, (x, y, ширина, висота)) у порядку читання. Шукаємо слово або 2–4 сусідні слова,
     найбільше схожі на target. Повертає (текст, центр (x, y), схожість) або None."""
