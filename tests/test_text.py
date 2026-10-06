@@ -142,3 +142,14 @@ def test_click_intent_and_promises():
     assert click_intent("Натисни кнопку Грати") == "Грати"
     assert click_intent("Розкажи, як натиснути на кнопку") is None
     assert claims_action("Я зрозуміла, Ігорю. Зараз натисну «I don't agree».")
+
+
+def test_window_and_selection_intents():
+    from agent.text import wants_selection, window_intent
+    assert window_intent("Хомі, згорни термінал") == ("minimize", "термінал")
+    assert window_intent("Згорни все") == ("minimize_all", "")
+    assert window_intent("Розгорни ютуб") == ("maximize", "ютуб")
+    assert window_intent("Перейди в дискорд") == ("focus", "дискорд")
+    assert window_intent("Розкажи, як згорнути вікно в Windows швидко і без мишки") is None
+    assert wants_selection("Я виділив текст, переклади")
+    assert not wants_selection("Переклади: я втомився")

@@ -309,3 +309,31 @@ def click_intent(transcript: str) -> str | None:
     t = (rest if rest else t).strip(" ,.")
     m = _CLICK.match(t)
     return m.group(1).strip(" «»\"'.,!") or None if m else None
+
+
+_WINDOW = [
+    ("minimize_all", re.compile(r"^(?:згорни|сховай) (?:все|всі вікна|усе)$|^покажи робочий стіл$")),
+    ("minimize", re.compile(r"^(?:згорни|сховай|прибери) (?:вікно )?(.+)$")),
+    ("maximize", re.compile(r"^(?:розгорни|відкрий на весь екран|на весь екран) (?:вікно )?(.+)$")),
+    ("focus", re.compile(r"^(?:перейди|переключись|переключи|повернись) (?:в|у|на|до) (?:вікно )?(.+)$")),
+]
+
+
+def window_intent(transcript: str):
+    """«Згорни термінал», «розгорни ютуб», «перейди в дискорд», «згорни все» → (дія, вікно)."""
+    t = " ".join(re.sub(r"[^\w' ]", " ", transcript.lower()).split())
+    rest = split_wake(t)
+    t = rest if rest else t
+    t = t.removesuffix(" будь ласка").strip()
+    if len(t.split()) > 6:
+        return None
+    for action, rx in _WINDOW:
+        m = rx.match(t)
+        if m:
+            return action, (m.group(1) if m.groups() else "")
+    return None
+
+
+def wants_selection(transcript: str) -> bool:
+    """«Переклади виділене», «що означає виділений текст» — працюємо з виділеним текстом."""
+    return bool(re.search(r"виділ\w*", transcript.lower()))

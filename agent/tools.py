@@ -161,6 +161,13 @@ class Tools(PcTools):
             _schema("money_spending", "Скільки витрачено за останні N днів і на що (Monobank).",
                     {"days": {"type": "integer", "description": "1–31"}}, ["days"]),
             _schema("mail_unread", "Нові (непрочитані) листи в Gmail: від кого й про що."),
+            _schema("window", "Керувати вікнами: згорнути, розгорнути на весь екран, перейти у вікно, "
+                    "згорнути все (показати робочий стіл).",
+                    {"action": {"type": "string", "enum": ["minimize", "maximize", "focus", "minimize_all"]},
+                     "name": {"type": "string", "description": "Яке вікно: «термінал», «дискорд», «ютуб»…"}},
+                    ["action"]),
+            _schema("selected_text", "Взяти текст, який користувач виділив мишкою в будь-якій програмі "
+                    "(щоб перекласти, пояснити, переказати). Точніше й швидше, ніж дивитися на екран."),
             _schema("open_website", "Відкрити сайт у браузері.",
                     {"url": {"type": "string", "description": "Повна адреса https://…"}}, ["url"]),
         ]
@@ -274,6 +281,15 @@ class Tools(PcTools):
             return f"Відкрила {found}."
         close = ", ".join(n for _, n in ranked[:3])
         return f"Не знайшла програми «{name}» серед встановлених." + (f" Схожі: {close}." if close else "")
+
+    def _t_window(self, action: str, name: str = "") -> str:
+        from .windows import window_action
+        return window_action(action, name)
+
+    def _t_selected_text(self) -> str:
+        from .windows import selected_text
+        text = selected_text()
+        return f"Виділений текст:\n{text[:6000]}" if text else "Нічого не виділено (буфер обміну не змінився)."
 
     def _t_open_website(self, url: str) -> str:
         if not url.startswith(("http://", "https://")):

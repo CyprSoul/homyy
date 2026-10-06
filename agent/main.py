@@ -16,7 +16,8 @@ import requests
 
 from .config import AGENT_DIR, load_config, ollama_options
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
-                   is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent)
+                   is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
+                   wants_selection, window_intent)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 
@@ -304,6 +305,19 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
             elif intent:                      # «постав на паузу» — одразу, без Gemma
                 log("інструмент", f"media {{'action': '{intent}'}} (швидка команда)")
                 answer = brain.direct(text, "media", {"action": intent, "times": 3 if "volume" in intent else 1})
+            elif window_intent(text):        # «згорни термінал», «перейди в дискорд» — одразу
+                action, target = window_intent(text)
+                log("інструмент", f"window {{'action': '{action}', 'name': '{target}'}} (швидка команда)")
+                answer = brain.direct(text, "window", {"action": action, "name": target})
+            elif wants_selection(text):      # «переклади виділене» — беремо текст, а не знімок екрана
+                from .windows import selected_text
+                sel = selected_text()
+                log("інструмент", f"selected_text → {len(sel)} символів")
+                if sel:
+                    answer = brain.ask(f"{text}\n\n(Виділений текст, з яким треба працювати:)\n{sel[:6000]}",
+                                       on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
+                else:
+                    answer = brain.direct_reply(text, "Не бачу виділеного тексту. Виділи його мишкою й скажи ще раз.")
             elif click_intent(text):         # «натисни на …» — одразу, без Gemma
                 target = click_intent(text)
                 log("інструмент", f"click_on_screen {{'text': '{target}'}} (швидка команда)")
