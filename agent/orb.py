@@ -5,6 +5,7 @@
 правий клік — меню.
 """
 import math
+from pathlib import Path
 import multiprocessing as mp
 import queue
 import time
@@ -75,7 +76,8 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
                         self.set_game_look(value == "game")
                         self.state = value
                     elif kind == "level":
-                        self.level += (min(1.0, value) - self.level) * 0.5
+                        value = value if math.isfinite(value) else 0.0
+                        self.level += (max(0.0, min(1.0, value)) - self.level) * 0.5
                     elif kind == "visible":           # під час гри сфера ховається й не малює
                         if value:
                             self.show()
@@ -96,7 +98,7 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             self.speed += (speed - self.speed) * k
             self.wobble += (wobble - self.wobble) * k
             self.level *= 0.92
-            self.phase += dt * self.speed * (1 + 2 * self.level)
+            self.phase = (self.phase + dt * self.speed * (1 + 2 * self.level)) % 10000.0
             if self.isVisible():
                 self.update()
 
@@ -160,11 +162,26 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             p.drawEllipse(QPointF(cx, cy), 3.8, 3.8)
 
         def paintEvent(self, _):
+            # Painter завжди закриваємо: інакше одна помилка малювання тягне за собою нескінченний
+            # потік «QPainter::begin…» у консоль і гальмує весь ПК.
             p = QPainter(self)
-            p.setRenderHint(QPainter.Antialiasing)
-            if self.state == "game":
-                self.paint_gamepad(p)
-                return
+            try:
+                p.setRenderHint(QPainter.Antialiasing)
+                if self.state == "game":
+                    self.paint_gamepad(p)
+                else:
+                    self.paint_orb(p)
+            except Exception:
+                if not getattr(self, "_paint_error_logged", False):
+                    self._paint_error_logged = True
+                    import traceback
+                    (Path(__file__).resolve().parent / "orb_error.log").write_text(
+                        traceback.format_exc(), encoding="utf-8")
+                self.phase, self.level = 0.0, 0.0       # скидаємо стан, що міг зламатися
+            finally:
+                p.end()
+
+        def paint_orb(self, p):
             t, lvl, col = self.phase, self.level, self.color
             cx, cy = W / 2, R + 30
             breath = 0.5 + 0.5 * math.sin(t * 1.3)
@@ -267,6 +284,17 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             elif chosen == off:
                 evt_q.put("quit")
                 QApplication.quit()
+
+    # Попередження Qt — не в консоль (їх бувають тисячі на секунду), а перші 50 — у файл.
+    from PySide6.QtCore import qInstallMessageHandler
+    qt_log = {"n": 0}
+
+    def _qt_messages(_mode, _ctx, msg):
+        if qt_log["n"] < 50:
+            qt_log["n"] += 1
+            with open(Path(__file__).resolve().parent / "orb_error.log", "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+    qInstallMessageHandler(_qt_messages)
 
     app = QApplication([])
     from pathlib import Path
