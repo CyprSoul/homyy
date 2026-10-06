@@ -161,7 +161,9 @@ def _conversation(cfg, audio, stt, brain, speaker):
     while True:
         ui.set_state("listen")
         log("🎙️", f"Слухаю… (говори, у тебе {timeout:.0f} с)")
-        seg = audio.listen(end_silence_ms=900, max_seconds=25, start_timeout_s=timeout)
+        seg = audio.listen(end_silence_ms=int(w.get("command_silence_ms", 700)), max_seconds=25,
+                           start_timeout_s=timeout)
+        t_said = time.time()
         if seg is None:
             sleep(audio)
             return
@@ -196,7 +198,13 @@ def _conversation(cfg, audio, stt, brain, speaker):
         log("Хомі", f"{answer}   [думала {time.time() - t_llm:.1f} с]")
         for st in brain.stats:
             log("⏱", st)
+        speaker.first_audio_at = None
+        t_voice = time.time()
         speak(speaker, audio, answer)
+        if speaker.first_audio_at:
+            log("⏱", f"від кінця твоєї фрази до голосу {speaker.first_audio_at - t_said:.1f} с "
+                     f"(розпізнала {stt_s:.1f}, думала {t_voice - t_llm:.1f}, "
+                     f"голос {speaker.first_audio_at - t_voice:.1f})")
         audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
         timeout = float(w.get("follow_up_seconds", 8))
 

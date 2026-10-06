@@ -20,6 +20,7 @@ class Audio:
         self.frames: queue.Queue[bytes] = queue.Queue()
         self.mic_level = 0.0
         self._play_env = None            # (час старту, гучність по 50 мс) того, що зараз звучить
+        self._last_play_end = 0.0
         self._play_lock = threading.Lock()   # нагадування з таймера не перебиває мову посередині
         device = a.get("input_device") or None
         self.stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16",
@@ -96,6 +97,11 @@ class Audio:
                 return pcm, speech_frames_total * FRAME_MS / 1000
 
     def play(self, samples: np.ndarray, rate: int):
+        # Після тиші звукова карта/навушники «прокидаються» і з'їдають перші ~200 мс —
+        # тому перед першим звуком додаємо трохи тиші, і обрізається вже вона, а не слова.
+        idle = time.time() - self._last_play_end
+        lead = 0.3 if idle > 2 else 0.03
+        samples = np.concatenate([np.zeros(int(rate * lead), dtype=samples.dtype), samples])
         x = samples.astype(np.float32)
         if samples.dtype == np.int16:
             x /= 32768.0
@@ -108,6 +114,7 @@ class Audio:
             sd.play(samples, rate)
             sd.wait()
             self._play_env = None
+            self._last_play_end = time.time()
 
     def beep(self, up: bool = True):
         """Короткий сигнал: угору — «слухаю», донизу — «закінчила слухати»."""

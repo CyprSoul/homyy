@@ -2,6 +2,7 @@
 
 Якщо основний голос недоступний (контейнер не запущений), Хомі говорить запасним — не мовчить.
 """
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import miniaudio
@@ -19,6 +20,7 @@ class Speaker:
         self.audio = audio
         self.pool = ThreadPoolExecutor(max_workers=3)
         self.cache: dict[str, np.ndarray] = {}
+        self.first_audio_at = None
 
     def say_cached(self, phrase: str):
         """Коротка фраза («Так?»), синтезована один раз — звучить миттєво."""
@@ -62,6 +64,9 @@ class Speaker:
         sentences = split_sentences(clean_for_speech(text))
         # Усі речення синтезуються паралельно, а грають по черзі — перше звучить майже одразу.
         futures = [self.pool.submit(self._synth, s) for s in sentences]
-        for f in futures:
-            self.audio.play(f.result(), RATE)
+        for i, f in enumerate(futures):
+            samples = f.result()
+            if i == 0:
+                self.first_audio_at = time.time()      # для журналу: коли Хомі реально заговорила
+            self.audio.play(samples, RATE)
         self.audio.drain()
