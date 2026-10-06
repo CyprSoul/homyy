@@ -102,10 +102,18 @@ def main():
     speaker._synth("Привіт.")                      # прогрів голосу
     run_round("Як налаштовано зараз", cfg, stt, brain, speaker)
 
-    if "--gpu" in sys.argv and stt.gpu_model is None and stt.load_gpu():
-        run_round("Розпізнавання на відеокарті", cfg, stt, brain, speaker)
+    if "--gpu" in sys.argv and stt.gpu_model is None:
+        # чесне порівняння: як у Хомі — Gemma вивантажити, Whisper на відеокарту, потім Gemma
+        requests.post(o["url"] + "/api/generate", json={"model": o["model"], "keep_alive": 0}, timeout=60)
+        time.sleep(2)
+        if stt.load_gpu():
+            requests.post(o["url"] + "/api/generate", timeout=300,
+                          json={"model": o["model"], "keep_alive": o.get("keep_alive", "24h"),
+                                "options": ollama_options(cfg)})
+            run_round("Розпізнавання на відеокарті", cfg, stt, brain, speaker)
 
-    (AGENT_DIR / "bench.txt").write_text("\n".join(lines), encoding="utf-8")
+    # з BOM — щоб PowerShell (type) показав українські букви, а не «РќР°Р»...»
+    (AGENT_DIR / "bench.txt").write_text("\n".join(lines), encoding="utf-8-sig")
     say("\nГотово. Результат збережено в agent\\bench.txt — надішли його мені.")
 
 
