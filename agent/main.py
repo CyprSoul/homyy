@@ -258,6 +258,40 @@ def speak_listening(cfg, speaker, audio, stt, text: str, asked: str = ""):
     return result.get("req")
 
 
+def ask_while_listening(cfg, audio, stt, brain, text: str):
+    """Gemma думає, а Хомі тим часом далі слухає. Якщо ти продовжив говорити (просто задумався
+    посеред думки) — її відповідь викидається, і вона дослуховує тебе до кінця.
+
+    Повертає (None, відповідь) або (новий повний текст, None).
+    """
+    snapshot = list(brain.history)
+    box: dict = {}
+
+    def work():
+        try:
+            box["answer"] = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
+        except Exception as e:      # noqa: BLE001 — передаємо далі в головний потік
+            box["error"] = e
+
+    worker = threading.Thread(target=work, daemon=True)
+    worker.start()
+    silence = int(cfg["wake"].get("command_silence_ms", 800))
+    while worker.is_alive():
+        seg = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=0.2,
+                           abort=lambda: not worker.is_alive())
+        if isinstance(seg, tuple):
+            extra = stt.command(seg[0])
+            if not extra or is_noise(extra):
+                continue                           # шум — хай Gemma спокійно договорює
+            worker.join()
+            brain.history = snapshot               # цієї відповіді наче й не було
+            log("✋", f"ти ще говориш («{extra}») — не відповідаю, слухаю далі")
+            return f"{text} {extra}".strip(), None
+    if "error" in box:
+        raise box["error"]
+    return None, box.get("answer", "")
+
+
 def _conversation(cfg, audio, stt, brain, speaker, first=None):
     w = cfg["wake"]
     if first is None:
@@ -351,7 +385,10 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 results = [brain.tools.call(c["name"], c["arguments"]) for c in skill["calls"]]
                 answer = brain.direct_reply(text, " ".join(r for r in results if r)[:300])
             else:
-                answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
+                more, answer = ask_while_listening(cfg, audio, stt, brain, text)
+                if more:                     # ти ще говорив, поки вона думала — відповідь скасована
+                    pending = more
+                    continue
                 if SKILLS.observe(text, brain.last_calls, brain.last_results):
                     log("🧠", f"навчилась: «{text}» → {[c['name'] for c in brain.last_calls]}")
                     answer += " До речі, я запам'ятала, як це робиться, — наступного разу зроблю одразу."

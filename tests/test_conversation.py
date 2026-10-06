@@ -100,3 +100,43 @@ def test_talking_over_continues_previous_request(monkeypatch):
     req = main.speak_listening({"wake": {}}, FakeSpeaker(audio), audio, TalkOverSTT(),
                                "Сфера — це геометрична фігура.", asked="Пошукай в інтернеті сферу.")
     assert req == "Пошукай в інтернеті сферу. Типу, я хочу зробити класну сферу, яка ворушиться"
+
+
+class SlowBrain:
+    def __init__(self):
+        self.history = [{"role": "user", "content": "раніше"}]
+
+    def ask(self, text, on_tool=None):
+        import time as _t
+        _t.sleep(0.3)
+        self.history += [{"role": "user", "content": text}, {"role": "assistant", "content": "лекція"}]
+        return "лекція"
+
+
+class TalkingAudio:
+    def __init__(self, talk):
+        self.talk = talk
+
+    def listen(self, *a, abort=None, **k):
+        if self.talk:
+            self.talk = False
+            return np.zeros(1600, dtype=np.int16), 1.0
+        while abort and not abort():
+            pass
+        return None
+
+
+class MoreSTT:
+    def command(self, pcm):
+        return "щоб вона рухалась, коли хтось говорить"
+
+
+def test_keeps_listening_while_thinking(monkeypatch):
+    monkeypatch.setattr(main, "log", lambda *a: None)
+    brain = SlowBrain()
+    more, answer = main.ask_while_listening({"wake": {}}, TalkingAudio(True), MoreSTT(), brain,
+                                            "Пошукай сферу,")
+    assert more == "Пошукай сферу, щоб вона рухалась, коли хтось говорить" and answer is None
+    assert brain.history == [{"role": "user", "content": "раніше"}]        # відповідь викинута
+    more, answer = main.ask_while_listening({"wake": {}}, TalkingAudio(False), MoreSTT(), SlowBrain(), "Привіт")
+    assert more is None and answer == "лекція"
