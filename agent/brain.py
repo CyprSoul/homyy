@@ -69,6 +69,8 @@ class Brain:
         self.history: list[dict] = []
         self.last_turn = 0.0
         self.stats: list[str] = []          # таймінги Ollama за останнє питання (для журналу)
+        self.last_calls: list[dict] = []
+        self.last_results: list[str] = []
         self._mem_cache: list[str] = []
         self._mem_time = 0.0
 
@@ -165,6 +167,7 @@ class Brain:
         messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
         used_tools, nudged = False, False
+        self.last_calls, self.last_results = [], []     # для навичок: що саме зробила на це прохання
         for _ in range(MAX_TOOL_ROUNDS + 1):
             msg = self._chat(messages)
             calls = msg.get("tool_calls") or []
@@ -187,6 +190,8 @@ class Brain:
                 if on_tool:
                     on_tool(fn["name"], fn.get("arguments") or {})
                 result = self.tools.call(fn["name"], fn.get("arguments") or {})
+                self.last_calls.append({"name": fn["name"], "arguments": fn.get("arguments") or {}})
+                self.last_results.append(result)
                 if fn["name"] == "remember":
                     self._mem_time = 0.0          # новий факт — наступного разу перечитати пам'ять
                 messages.append({"role": "tool", "tool_name": fn["name"], "content": result + STYLE_REMINDER})

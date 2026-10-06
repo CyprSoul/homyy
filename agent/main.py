@@ -4,6 +4,7 @@
 """
 import os
 import random
+import re
 import socket
 from urllib.parse import urlparse
 import sys
@@ -15,11 +16,13 @@ import numpy as np
 import requests
 
 from .config import AGENT_DIR, load_config, ollama_options
+from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
                    wants_selection, window_intent)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
+SKILLS = SkillBook()
 
 
 class UI:
@@ -323,8 +326,19 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 log("інструмент", f"click_on_screen {{'text': '{target}'}} (швидка команда)")
                 brain.tools.last_user_text = text
                 answer = brain.direct(text, "click_on_screen", {"text": target})
+            elif re.match(r"^(?:хомі,?\s*)?(?:забудь|розучись),? як", text.strip(), re.I):
+                ok = SKILLS.forget(text)
+                answer = brain.direct_reply(text, "Добре, забула цю навичку." if ok else "Такої навички в мене немає.")
+            elif (skill := SKILLS.match(text)):
+                # вивчена навичка: повторюємо ті самі кроки одразу, без Gemma
+                log("⚡", f"навичка «{skill['phrase']}» → {[c['name'] for c in skill['calls']]}")
+                results = [brain.tools.call(c["name"], c["arguments"]) for c in skill["calls"]]
+                answer = brain.direct_reply(text, " ".join(r for r in results if r)[:300])
             else:
                 answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
+                if SKILLS.observe(text, brain.last_calls, brain.last_results):
+                    log("🧠", f"навчилась: «{text}» → {[c['name'] for c in brain.last_calls]}")
+                    answer += " До речі, я запам'ятала, як це робиться, — наступного разу зроблю одразу."
         except requests.RequestException as e:
             log("помилка", str(e))
             answer = "Ой, я не можу достукатися до свого мозку. Перевір, будь ласка, чи працює Ollama."
