@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 import requests
 
-from .config import REPO_DIR
+from .config import REPO_DIR, ollama_options
 from .text import extract_prompt, ukr_date
 from .tools import Tools
 
@@ -77,7 +77,7 @@ class Brain:
         payload = {
             "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
             "stream": False, "think": False, "keep_alive": o.get("keep_alive", "30m"),
-            "options": {"num_ctx": o.get("num_ctx", 32768), "temperature": o.get("temperature", 0.4)},
+            "options": ollama_options(self.cfg, temperature=o.get("temperature", 0.4)),
         }
         for attempt in range(2):   # перший запит після простою іноді падає, поки модель вантажиться
             r = requests.post(f"{o['url']}/api/chat", timeout=300, json=payload)

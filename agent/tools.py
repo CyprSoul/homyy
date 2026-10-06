@@ -11,6 +11,8 @@ from urllib.parse import quote_plus
 
 import requests
 
+from .config import ollama_options
+
 from .pctools import PcTools
 from .text import date_diff, ukr_date
 
@@ -166,7 +168,7 @@ class Tools(PcTools):
         o = self.cfg["ollama"]
         r = requests.post(f"{o['url']}/api/chat", timeout=180, json={
             "model": o["model"], "stream": False, "think": False, "keep_alive": o.get("keep_alive", "24h"),
-            "options": {"num_ctx": o.get("num_ctx", 32768), "temperature": 0.2},
+            "options": ollama_options(self.cfg, temperature=0.2),
             "messages": [{"role": "user", "content":
                           f"Це знімок екрана користувача. {question}\n"
                           "Відповідай українською, коротко й по суті, лише про те, що справді видно.",

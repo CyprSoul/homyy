@@ -25,3 +25,12 @@ def load_config(path: Path | None = None) -> dict:
         with open(path, "rb") as f:
             cfg = _merge(cfg, tomllib.load(f))
     return cfg
+
+
+def ollama_options(cfg: dict, **extra) -> dict:
+    """Однакові параметри для всіх запитів до Ollama: інші num_ctx/num_thread = перезавантаження моделі."""
+    o = cfg["ollama"]
+    opts = {"num_ctx": o.get("num_ctx", 32768)}
+    if o.get("num_thread"):
+        opts["num_thread"] = int(o["num_thread"])
+    return {**opts, **extra}

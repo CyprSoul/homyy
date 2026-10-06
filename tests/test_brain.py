@@ -36,3 +36,11 @@ def test_unasked_time_is_stripped():
     assert strip_unasked_time("Що ти там?", a) == "Я тут, Ігорю. Просто чекаю, коли ти щось скажеш."
     assert strip_unasked_time("Котра година?", "Зараз 23:45.") == "Зараз 23:45."
     assert strip_unasked_time("Привіт", "Зараз 23:45.") == "Зараз 23:45."   # не лишаємо порожньо
+
+
+def test_ollama_options_same_everywhere():
+    from agent.config import ollama_options
+    cfg = {"ollama": {"num_ctx": 16384, "num_thread": 8}}
+    assert ollama_options(cfg) == {"num_ctx": 16384, "num_thread": 8}
+    assert ollama_options(cfg, temperature=0.4)["temperature"] == 0.4
+    assert ollama_options({"ollama": {}}) == {"num_ctx": 32768}

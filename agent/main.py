@@ -13,7 +13,7 @@ import traceback
 
 import requests
 
-from .config import AGENT_DIR, load_config
+from .config import AGENT_DIR, load_config, ollama_options
 from .text import collapse, greeting, is_new_topic, is_noise, is_pause, is_stop, is_wake
 
 LOG_FILE = AGENT_DIR / "homyy.log"
@@ -107,7 +107,7 @@ def _ollama_keep(cfg, keep_alive):
     try:
         requests.post(f"{o['url']}/api/generate", timeout=120,
                       json={"model": o["model"], "keep_alive": keep_alive,
-                            "options": {"num_ctx": o.get("num_ctx", 32768)}})
+                            "options": ollama_options(cfg)})
     except requests.RequestException:
         pass
 
