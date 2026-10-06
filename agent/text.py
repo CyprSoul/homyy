@@ -247,3 +247,42 @@ def interrupt_request(heard: str, speaking: str) -> str | None:
                 rest = rest[1:]
             return " ".join(rest) if len(rest) >= 2 else ""
     return None
+
+
+_CLAIM = re.compile(r"\b(поставила|увімкнула|ввімкнула|вимкнула|відкрила|закрила|перемкнула|продовжила|"
+                    r"зупинила|запустила|зробила (?:гучніше|тихіше)|заблокувала|запам'ятала|записала|"
+                    r"нагадаю|поставила нагадування|вмикаю|вимикаю|відкриваю|закриваю|ставлю на паузу|"
+                    r"перемикаю|запускаю|блокую)\b", re.IGNORECASE)
+
+
+def claims_action(answer: str) -> bool:
+    """Хомі каже, що щось зробила на ПК («Поставила на паузу», «Відкриваю…»)."""
+    return bool(_CLAIM.search(answer.replace("’", "'")))
+
+
+_MEDIA_INTENTS = [
+    ("pause", re.compile(r"(на паузу|пауз[ау]|зупини (?:музику|пісню|відео)|стоп музик|вимкни музику)")),
+    ("play", re.compile(r"(продовж|віднови|зніми з паузи|грай далі|увімкни назад|включи назад)")),
+    ("next", re.compile(r"(наступн\w* (?:пісн|трек|композиц|відео)|^наступн\w*$|перемкни пісню|далі пісню)")),
+    ("previous", re.compile(r"(попередн\w* (?:пісн|трек|композиц|відео)|^попередн\w*$)")),
+    ("volume_up", re.compile(r"(гучніше|голосніше|додай звук|зроби звук гучніше)")),
+    ("volume_down", re.compile(r"(тихіше|зменш звук|зроби звук тихіше)")),
+    ("mute", re.compile(r"(вимкни звук|без звуку)")),
+]
+
+
+def media_intent(transcript: str) -> str | None:
+    """Коротка команда для музики/звуку («постав на паузу», «наступна пісня», «гучніше») —
+    виконуємо одразу, без Gemma: швидше й без ризику, що модель лише скаже «поставила»."""
+    t = " ".join(re.sub(r"[^\w' ]", " ", transcript.lower()).split())
+    words = t.split()
+    while words and (words[0] in ("хомі", "хома", "хоми", "будь", "ласка", "схоже", "ну", "а") or
+                     any(p.fullmatch(collapse(words[0])) for p in _WAKE_PATTERNS)):
+        words = words[1:]
+    if not words or len(words) > 6:
+        return None
+    t = " ".join(words).removesuffix(" будь ласка")
+    for action, rx in _MEDIA_INTENTS:
+        if rx.search(t):
+            return action
+    return None

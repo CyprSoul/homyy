@@ -59,3 +59,17 @@ def test_fix_vocative():
     assert fix_vocative("Привіт, Ігоре! Як ти?", user) == "Привіт, Ігорю! Як ти?"
     assert fix_vocative("Ігорю, все добре", user) == "Ігорю, все добре"
     assert fix_vocative("Привіт, Ігоре!", {"name": "Ігор"}) == "Привіт, Ігоре!"
+
+
+def test_claimed_action_without_tool_is_retried(monkeypatch):
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "Музику поставила на паузу."},                                     # бреше: інструмента нема
+        {"content": "", "tool_calls": [{"function": {"name": "media", "arguments": {"action": "pause"}}}]},
+        {"content": "Поставила на паузу."},
+    ])
+    called = []
+    monkeypatch.setattr(b, "_chat", lambda m: next(replies))
+    monkeypatch.setattr(b.tools, "call", lambda n, a: called.append((n, a)) or "Поставила на паузу «Пісня».")
+    assert b.ask("Постав, будь ласка, музику на паузу, бо дзвонять") == "Поставила на паузу."
+    assert called == [("media", {"action": "pause"})]

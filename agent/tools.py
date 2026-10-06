@@ -18,7 +18,7 @@ from .pctools import PcTools
 from .text import date_diff, ukr_date
 
 # Віртуальні клавіші Windows для медіа.
-_VK = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1,
+_VK = {"pause": 0xB3, "play": 0xB3, "play_pause": 0xB3, "next": 0xB0, "previous": 0xB1,
        "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD}
 
 
@@ -47,8 +47,12 @@ def _smtc(action: str) -> str | None:
             title = f" «{props.title}»" if props and props.title else ""
         except Exception:
             pass
-        if action == "play_pause":
+        if action in ("pause", "play", "play_pause"):
             was_playing = status() == 4
+            if action == "pause" and not was_playing:
+                return f"Музика{title} і так на паузі."
+            if action == "play" and was_playing:
+                return f"Музика{title} вже грає."
             ok = await (session.try_pause_async() if was_playing else session.try_play_async())
             if not ok:
                 return "Плеєр не послухався."
@@ -104,7 +108,7 @@ class Tools(PcTools):
                     "вподобані пісні) або конкретну пісню, виконавця, жанр («увімкни Океан Ельзи», "
                     "«увімкни щось спокійне для роботи»).",
                     {"query": {"type": "string", "description": "Що саме; порожньо — мої вподобані пісні"}}),
-            _schema("media", "Керування музикою, що ВЖЕ грає: пауза/продовжити, наступна, попередня, гучність. "
+            _schema("media", "Керування музикою, що ВЖЕ грає: pause, play (продовжити), next, previous, гучність. "
                     "Щоб увімкнути музику з нуля — play_music.",
                     {"action": {"type": "string", "enum": list(_VK)},
                      "times": {"type": "integer", "description": "Скільки разів натиснути (для гучності)"}},
@@ -177,7 +181,7 @@ class Tools(PcTools):
         times = max(1, min(int(times or 1), 25))
         if sys.platform != "win32":
             return f"Виконано: {action} ×{times}."
-        if action in ("play_pause", "next", "previous"):
+        if action in ("pause", "play", "play_pause", "next", "previous"):
             done = _smtc(action)                 # керування плеєром Windows — з перевіркою результату
             if done is not None:
                 return done
@@ -187,7 +191,9 @@ class Tools(PcTools):
             # медіаклавіші — «розширені» (KEYEVENTF_EXTENDEDKEY), без цього прапорця частина програм їх ігнорує
             ctypes.windll.user32.keybd_event(_VK[action], sc, 1, 0)
             ctypes.windll.user32.keybd_event(_VK[action], sc, 1 | 2, 0)
-        return f"Натиснула клавішу {action} ×{times} (чи спрацювало — не бачу)."
+        names = {"pause": "паузу", "play": "продовження", "play_pause": "паузу/продовження", "next": "наступну",
+                 "previous": "попередню", "volume_up": "гучніше", "volume_down": "тихіше", "mute": "без звуку"}
+        return f"Натиснула клавішу «{names[action]}», але не бачу, чи плеєр послухався."
 
     def _t_play_music(self, query: str = "") -> str:
         """Відкриває YouTube Music так, щоб музика одразу заграла (сторінка «watch», а не головна)."""

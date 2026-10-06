@@ -114,3 +114,22 @@ def test_split_wake():
     assert split_wake("Хомі.") == ""
     assert split_wake("Яка погода?") is None
     assert split_wake("Я вдома") is None
+
+
+def test_media_intent():
+    from agent.text import media_intent
+    assert media_intent("Схоже, постав на паузу.") == "pause"
+    assert media_intent("Хомі, постав на паузу") == "pause"
+    assert media_intent("Продовжуй") == "play"
+    assert media_intent("Наступна пісня") == "next"
+    assert media_intent("Зроби гучніше, будь ласка") == "volume_up"
+    assert media_intent("тихіше") == "volume_down"
+    assert media_intent("Нагадай мені наступного тижня про лікаря") is None
+    assert media_intent("Розкажи, чому музика на паузі буває корисною для концентрації уваги") is None
+
+
+def test_claims_action():
+    from agent.text import claims_action
+    assert claims_action("Зрозуміла, Ігорю. Музику поставила на паузу.")
+    assert claims_action("Відкриваю YouTube!")
+    assert not claims_action("Космос — це неймовірно цікаво.")

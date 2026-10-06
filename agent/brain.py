@@ -6,7 +6,7 @@ from datetime import date, datetime
 import requests
 
 from .config import REPO_DIR, ollama_options
-from .text import extract_prompt, ukr_date
+from .text import claims_action, extract_prompt, ukr_date
 from .tools import Tools
 
 VOICE_RULES = """
@@ -137,6 +137,16 @@ class Brain:
                           f"відповідь {ev_n} ток. за {ev:.1f} с ({ev_n / ev if ev else 0:.0f} ток/с), "
                           f"разом в Ollama {total:.1f} с")
 
+    def direct(self, user_text: str, tool: str, args: dict) -> str:
+        """Проста команда без Gemma («постав на паузу»): виконати й запам'ятати в розмові."""
+        if time.time() - self.last_turn > HISTORY_IDLE_RESET_S:
+            self.history = []
+        self.last_turn = time.time()
+        self.stats = []
+        answer = self.tools.call(tool, args)
+        self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
+        return answer
+
     def ask(self, user_text: str, on_tool=None) -> str:
         if time.time() - self.last_turn > HISTORY_IDLE_RESET_S:
             self.history = []
@@ -150,14 +160,23 @@ class Brain:
                                           "— тоді одразу, без інструментів.)"}
         messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
-        for _ in range(MAX_TOOL_ROUNDS):
+        used_tools, nudged = False, False
+        for _ in range(MAX_TOOL_ROUNDS + 1):
             msg = self._chat(messages)
             calls = msg.get("tool_calls") or []
+            if not calls and not used_tools and not nudged and claims_action(msg.get("content") or ""):
+                # Каже «поставила на паузу», а інструмент не викликала — це неправда. Просимо зробити.
+                nudged = True
+                messages.append({"role": "assistant", "content": msg.get("content") or ""})
+                messages.append({"role": "user", "content": "(Службове: ти ще нічого не зробила — інструмент "
+                                 "не викликано. Виконай дію через інструмент, а не словами.)"})
+                continue
             if not calls:
                 answer = fix_gender(strip_unasked_time(user_text, (msg.get("content") or "").strip()))
                 answer = fix_vocative(answer, self.cfg["user"])
                 self.history.append({"role": "assistant", "content": answer})
                 return answer
+            used_tools = True
             messages.append({"role": "assistant", "content": msg.get("content", ""), "tool_calls": calls})
             for c in calls:
                 fn = c["function"]
