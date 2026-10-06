@@ -57,3 +57,17 @@ def test_unconfigured_integrations_hidden():
     assert "web_search" in names and not names & {"notes_search", "money_balance", "mail_unread"}
     cfg["monobank"] = {"token": "t"}
     assert "money_balance" in {s["function"]["name"] for s in Tools(cfg).schemas()}
+
+
+def test_play_music(monkeypatch):
+    from agent.tools import Tools
+    t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
+    opened = []
+    monkeypatch.setattr("webbrowser.open", opened.append)
+    assert "вподобані" in t.call("play_music", {})
+    assert opened[-1] == "https://music.youtube.com/watch?list=LM"
+    monkeypatch.setattr(Tools, "_first_video", staticmethod(lambda q: "dQw4w9WgXcQ"))
+    t.call("play_music", {"query": "Океан Ельзи"})
+    assert opened[-1] == "https://music.youtube.com/watch?v=dQw4w9WgXcQ"
+    monkeypatch.setattr(Tools, "_first_video", staticmethod(lambda q: None))
+    assert "натиснути" in t.call("play_music", {"query": "щось"})

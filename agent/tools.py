@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import os
+import re
 import sys
 import webbrowser
 from datetime import date, datetime
@@ -59,7 +60,12 @@ class Tools(PcTools):
             _schema("remember", "Запам'ятати важливий довготривалий факт про користувача. "
                     "Пиши від третьої особи: «Користувач любить…».",
                     {"fact": {"type": "string"}}, ["fact"]),
-            _schema("media", "Керування музикою й звуком на ПК.",
+            _schema("play_music", "Увімкнути музику в YouTube Music: «увімкни музику» (без запиту — мої "
+                    "вподобані пісні) або конкретну пісню, виконавця, жанр («увімкни Океан Ельзи», "
+                    "«увімкни щось спокійне для роботи»).",
+                    {"query": {"type": "string", "description": "Що саме; порожньо — мої вподобані пісні"}}),
+            _schema("media", "Керування музикою, що ВЖЕ грає: пауза/продовжити, наступна, попередня, гучність. "
+                    "Щоб увімкнути музику з нуля — play_music.",
                     {"action": {"type": "string", "enum": list(_VK)},
                      "times": {"type": "integer", "description": "Скільки разів натиснути (для гучності)"}},
                     ["action"]),
@@ -135,6 +141,31 @@ class Tools(PcTools):
                 ctypes.windll.user32.keybd_event(_VK[action], 0, 0, 0)
                 ctypes.windll.user32.keybd_event(_VK[action], 0, 2, 0)
         return f"Виконано: {action} ×{times}."
+
+    def _t_play_music(self, query: str = "") -> str:
+        """Відкриває YouTube Music так, щоб музика одразу заграла (сторінка «watch», а не головна)."""
+        query = (query or "").strip()
+        if not query:
+            webbrowser.open("https://music.youtube.com/watch?list=LM")      # «Вподобані»
+            return "Увімкнула твої вподобані пісні в YouTube Music."
+        video = self._first_video(query)
+        if video:
+            # після пісні YouTube Music сам продовжує схожими (радіо)
+            webbrowser.open(f"https://music.youtube.com/watch?v={video}")
+            return f"Увімкнула «{query}» в YouTube Music."
+        webbrowser.open("https://music.youtube.com/search?q=" + quote_plus(query))
+        return f"Відкрила пошук «{query}» в YouTube Music — треба натиснути на пісню, сама не змогла увімкнути."
+
+    @staticmethod
+    def _first_video(query: str) -> str | None:
+        try:
+            r = requests.get("https://www.youtube.com/results", params={"search_query": query}, timeout=8,
+                             headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "uk,en;q=0.8"},
+                             cookies={"CONSENT": "YES+cb", "SOCS": "CAI"})      # без вікна згоди (ЄС)
+            m = re.search(r'"videoId":"([\w-]{11})"', r.text)
+            return m.group(1) if m else None
+        except requests.RequestException:
+            return None
 
     def _t_open_app(self, name: str) -> str:
         target = self.apps.get(name.lower().strip())
