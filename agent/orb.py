@@ -27,6 +27,10 @@ R = 40            # радіус сфери
 
 
 def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
+    # Ctrl+C у вікні Хомі долітає й до процесу сфери і рве малювання посеред кадру
+    # (звідси лавина «QPainter…»). Сферу закриває головний процес — тут Ctrl+C ігноруємо.
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
     from PySide6.QtGui import (QColor, QFont, QPainter, QPainterPath, QPen,
                                QRadialGradient)
