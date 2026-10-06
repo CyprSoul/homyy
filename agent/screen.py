@@ -49,6 +49,10 @@ def app_similarity(spoken: str, name: str) -> float:
         return 0.0
     if a == b:
         return 1.0
+    # англійські назви кирилицею: «Геймс» → Games, «Стім» → Steam — збігаються «кістяком» приголосних
+    skel = lambda t: re.sub(r"[aeiouy]", "", t)
+    if len(skel(a)) >= 3 and skel(a) == skel(b):
+        return 0.88
     if len(a) >= 4 and a in b:
         return 0.9
     if len(a) >= 3 and any(phon(w).startswith(a) for w in name.split()):

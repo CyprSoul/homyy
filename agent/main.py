@@ -671,6 +671,14 @@ def main():
         return
     cfg = load_config()
     CFG.update(cfg)
+    try:                                 # версія коду — щоб з журналу було видно, чи Хомі оновилась
+        import subprocess
+        ver = subprocess.run(["git", "-C", str(AGENT_DIR.parent), "log", "-1", "--format=%h %cd", "--date=format:%d.%m %H:%M"],
+                             capture_output=True, text=True, timeout=5,
+                             creationflags=0x08000000 if sys.platform == "win32" else 0).stdout.strip()
+        log("ℹ", f"версія Хомі: {ver}")
+    except Exception:
+        pass
     wake_click = threading.Event()
 
     if not cfg.get("ui", {}).get("widget", True):
