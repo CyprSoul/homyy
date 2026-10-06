@@ -114,6 +114,8 @@ def _ollama_keep(cfg, keep_alive):
         pass
 
 
+READY_PHRASES = ["Все, я готова!", "Я готова, можеш питати.", "Готова до роботи!", "Все, я в строю!"]
+
 CFG: dict = {}
 BRAIN: list = []                    # голосовий «мозок» — щоб меню сфери могло почати нову тему
 
@@ -402,15 +404,27 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     stt = STT(cfg)
     # Gemma вантажиться у фоні (~20 с): Хомі вже слухає й вітається, а питання просто трохи зачекає.
     log("…", "завантажую Gemma у відеокарту у фоні")
+    voice = {}                           # тут з'явиться голос, коли він буде готовий
+
     def _preload():
         t = time.time()
         _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
-        log("✓", f"Gemma готова ({time.time() - t:.0f} с)")
+        took = time.time() - t
+        log("✓", f"Gemma готова ({took:.0f} с)")
+        # Сказати вголос, що вже можна питати — лише якщо довелося чекати й Хомі зараз нічим не зайнята
+        if took > 3 and cfg.get("ui", {}).get("announce_ready", True):
+            ready_voice.wait(60)
+            if ui.state == "sleep" and not game_mode and not paused.is_set():
+                speak(voice["speaker"], voice["audio"], random.choice(READY_PHRASES))
+                ui.set_state("sleep")
+    ready_voice = threading.Event()
     threading.Thread(target=_preload, daemon=True).start()
     audio = Audio(cfg)
     brain = Brain(cfg)
     BRAIN.append(brain)
     speaker = Speaker(cfg, audio)
+    voice.update(speaker=speaker, audio=audio)
+    ready_voice.set()
 
     def remind(text: str):
         log("⏰", text)

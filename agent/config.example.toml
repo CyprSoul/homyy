@@ -76,6 +76,7 @@ telegram = "tg://"
 [ui]
 widget = true            # кулька-віджет у кутку екрана
 position = "bottom-right"  # або "top-left"
+announce_ready = true     # сказати «Я готова!», коли Gemma завантажилась після запуску
 greet = true             # привітатися голосом після запуску
 
 [game]
