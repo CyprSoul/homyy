@@ -123,6 +123,14 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
 
         # ---- дані від голосової Хомі ----------------------------------
         def step(self):
+            # Головну Хомі закрили (або вбили з диспетчера задач) — сфера не має лишатися сиротою
+            now_ = time.perf_counter()
+            if now_ - getattr(self, "_parent_check", 0.0) > 1.0:
+                self._parent_check = now_
+                parent = mp.parent_process()
+                if parent is not None and not parent.is_alive():
+                    QApplication.quit()
+                    return
             try:
                 while True:
                     kind, value = cmd_q.get_nowait()
