@@ -160,6 +160,10 @@ def is_new_topic(transcript: str) -> bool:
 
 
 _RU_ONLY = set("ыэъё")
+# Часті російські слова без «ы/э/ъ/ё» — Parakeet інколи пише «Привет» замість «Привіт»
+_RU_WORDS = {"привет", "что", "это", "как", "где", "когда", "хорошо", "спасибо", "пожалуйста", "сегодня",
+             "сейчас", "тебя", "меня", "есть", "нет", "да", "очень", "только", "можно", "нужно", "почему",
+             "здравствуй", "здравствуйте", "пока", "тоже", "теперь", "давно", "кто", "или", "она", "они"}
 
 
 def looks_ukrainian(transcript: str) -> bool:
@@ -172,6 +176,8 @@ def looks_ukrainian(transcript: str) -> bool:
     if not letters:
         return True
     if any(c in _RU_ONLY for c in letters):
+        return False
+    if set(re.findall(r"[а-яіїєґ']+", transcript.lower())) & _RU_WORDS:
         return False
     latin = sum("a" <= c <= "z" for c in letters)
     return latin / len(letters) < 0.5

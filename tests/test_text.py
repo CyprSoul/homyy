@@ -76,6 +76,8 @@ def test_looks_ukrainian_catches_wrong_language():
     from agent.text import looks_ukrainian
     assert not looks_ukrainian("Ты тут, приведя кто расправы.")
     assert not looks_ukrainian("Uh none of mine no.")
+    assert not looks_ukrainian("Привет.")
+    assert looks_ukrainian("Привіт, як твої справи? Я сьогодні вдома.")
     assert looks_ukrainian("Яка привида, я кажу, як справи в тебе?")
     assert looks_ukrainian("")
 
