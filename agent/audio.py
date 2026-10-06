@@ -81,9 +81,31 @@ class Audio:
             self.out_stream = sd.OutputStream(samplerate=OUT_RATE, channels=1, dtype="float32",
                                               device=a.get("output_device") or None,
                                               callback=self._on_output)
-            self.out_stream.start()
         except Exception:
             self.out_stream = None           # не вийшло — граємо по-старому через sd.play
+        # Вихід відкриваємо лише поки Хомі говорить (+ кілька секунд): у деяких навушниках
+        # відкритий звук постійно шипить. keep_output_open = true — тримати завжди (для колонок).
+        self._keep_open = bool(a.get("keep_output_open", False))
+        self._idle_close_s = float(a.get("output_idle_close_s", 3))
+        if self.out_stream is not None:
+            if self._keep_open:
+                self.out_stream.start()
+            else:
+                threading.Thread(target=self._close_when_idle, daemon=True).start()
+
+    def _ensure_output(self):
+        if self.out_stream is not None and not self.out_stream.active:
+            self.out_stream.start()
+
+    def _close_when_idle(self):
+        while True:
+            time.sleep(0.5)
+            try:
+                if (self.out_stream.active and self._out_empty.is_set() and not self._play_lock.locked()
+                        and time.time() - self._last_play_end > self._idle_close_s):
+                    self.out_stream.stop()
+            except Exception:
+                pass
 
     def _on_output(self, outdata, frames, *_):
         with self._out_lock:
@@ -200,7 +222,8 @@ class Audio:
         # Після тиші звукова карта/навушники «прокидаються» і з'їдають перші ~200 мс —
         # тому перед першим звуком додаємо трохи тиші, і обрізається вже вона, а не слова.
         idle = time.time() - self._last_play_end
-        lead = 0.25 if idle > 2 else 0.03
+        stream_off = self.out_stream is not None and not self.out_stream.active
+        lead = 0.25 if idle > 2 or stream_off else 0.03
         samples = np.concatenate([np.zeros(int(rate * lead), dtype=samples.dtype), samples])
         x = samples.astype(np.float32)
         if samples.dtype == np.int16:
@@ -212,6 +235,7 @@ class Audio:
         with self._play_lock:
             self._play_env = (time.time(), env / peak if peak > 0 else env)
             if self.out_stream is not None:
+                self._ensure_output()
                 y = np.interp(np.arange(int(len(x) * OUT_RATE / rate)) * rate / OUT_RATE,
                               np.arange(len(x)), x).astype(np.float32)
                 with self._out_lock:

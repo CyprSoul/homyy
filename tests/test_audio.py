@@ -23,8 +23,13 @@ class FakeOut:
 
     def __init__(self, callback, **k):
         self.cb = callback
+        self.active = False
 
-    def start(self): pass
+    def start(self):
+        self.active = True
+
+    def stop(self):
+        self.active = False
 
 
 def test_play_goes_through_open_output_stream(monkeypatch):
@@ -49,3 +54,13 @@ def test_play_goes_through_open_output_stream(monkeypatch):
     # спершу тиша (щоб пристрій не з'їв початок), потім увесь тон: 0.1 с × 48 кГц
     assert loud[0] >= int(0.1 * audio_mod.OUT_RATE)
     assert abs(len(loud) - 4800) <= 2
+
+
+def test_output_opens_only_for_speech(monkeypatch):
+    monkeypatch.setattr(audio_mod.sd, "RawInputStream", FakeIn, raising=False)
+    monkeypatch.setattr(audio_mod.sd, "OutputStream", FakeOut, raising=False)
+    monkeypatch.setattr(audio_mod, "webrtcvad", type("V", (), {"Vad": lambda *a: None}))
+    a = audio_mod.Audio({})
+    assert not a.out_stream.active               # тиша — звук закритий, нічого не шипить
+    a._ensure_output()
+    assert a.out_stream.active
