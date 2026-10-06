@@ -407,7 +407,11 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     # Порядок важливий: спершу звільняємо відеокарту, потім кладемо туди Whisper, і лише потім
     # Gemma — тоді Ollama бачить, скільки місця реально лишилось, і не «переповнює» відеопам'ять
     # (інакше Windows виносить частину в звичайну пам'ять і відповідь іде хвилину).
-    _ollama_keep(cfg, 0)
+    s = cfg["stt"]
+    if s.get("engine", "whisper") == "whisper" and s.get("device", "auto") in ("auto", "cuda"):
+        _ollama_keep(cfg, 0)        # Whisper піде на відеокарту — Gemma вантажимо вже після нього
+    # Інакше (Parakeet/Canary на процесорі) Gemma, що вже в пам'яті після минулого запуску, лишається —
+    # перезапуск Хомі займає секунди, а не ~25 с.
 
     from .audio import Audio
     from .brain import Brain
