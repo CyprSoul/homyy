@@ -172,6 +172,7 @@ def _hear(cfg, audio, stt, timeout: float):
         wait = unfinished(text)
         if not wait:
             break
+        log("…", f"«{text}» — схоже, ти ще не договорив, чекаю {wait:.1f} с")
         ui.set_state("listen")
         more = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=wait)
         if more is None:
@@ -185,34 +186,49 @@ def _hear(cfg, audio, stt, timeout: float):
 
 
 def speak_listening(cfg, speaker, audio, stt, text: str):
-    """Говорить і водночас слухає: «стоп», «Хомі, почекай», «стоп, а яка погода?» — замовкає.
+    """Говорить і водночас слухає, чи ти її не перебиваєш. Два способи:
+    1) заговорив поверх неї (мікрофон помітно гучніший за луну її голосу) — замовкає й слухає;
+    2) почула «стоп», «почекай», «Хомі…» або «стоп, а яка погода?».
 
-    Повертає None — договорила; "" — перебили; інакше — нове питання, сказане після «стоп».
+    Повертає None — договорила; "" — перебили, слухати далі; інакше — нове питання після «стоп».
     """
     if not cfg["wake"].get("barge_in", True):
         speak(speaker, audio, text)
         return None
     done, result = threading.Event(), {}
 
+    def stop_now():
+        return done.is_set() or audio.barged.is_set()
+
     def monitor():
-        while not done.is_set():
-            seg = audio.listen(end_silence_ms=400, max_seconds=4, start_timeout_s=0.3, abort=done.is_set)
-            if not isinstance(seg, tuple) or done.is_set():
+        while not stop_now():
+            seg = audio.listen(end_silence_ms=400, max_seconds=4, start_timeout_s=0.3, abort=stop_now)
+            if not isinstance(seg, tuple) or stop_now():
                 continue
             heard = stt.command(seg[0])
+            if not heard:
+                continue
             req = interrupt_request(heard, text)
             if req is not None:
                 result["req"] = req
-                log("✋", f"перебив: «{heard}»")
+                log("✋", f"перебив словом: «{heard}»")
                 audio.stop_playback()
                 return
+            log("👂", f"під час мови чую: «{heard}»")     # луна її голосу чи щось інше — для налаштування
 
+    if hasattr(audio, "arm_barge_in"):
+        audio.arm_barge_in(True)
     t = threading.Thread(target=monitor, daemon=True)
     t.start()
     try:
         speak(speaker, audio, text)
     finally:
         done.set()
+        if hasattr(audio, "arm_barge_in"):
+            if audio.barged.is_set() and "req" not in result:
+                result["req"] = ""
+                log("✋", "перебив голосом — замовкаю й слухаю")
+            audio.arm_barge_in(False)
         t.join(timeout=3)
     return result.get("req")
 

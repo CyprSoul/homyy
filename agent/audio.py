@@ -14,6 +14,38 @@ OUT_RATE = 48000                 # частота виходу звуку (ус�
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
 
 
+class DoubleTalk:
+    """Чи говорить людина поверх голосу Хомі (коли звук іде з колонок, мікрофон чує й Хомі).
+
+    Порівнюємо гучність мікрофона з гучністю того, що Хомі зараз грає. Луна з колонок має
+    сталу частку; якщо мікрофон раптом у кілька разів гучніший за звичну луну ~0.3 с поспіль —
+    це ти.
+    """
+
+    def __init__(self, factor: float = 4.0, frames_needed: int = 10, floor: float = 0.01):
+        self.factor, self.frames_needed, self.floor = factor, frames_needed, floor
+        self.reset()
+
+    def reset(self):
+        self.est: float | None = None      # звична частка луни: мікрофон / те, що граємо
+        self.run = 0
+
+    def update(self, mic_rms: float, ref_rms: float, speech: bool) -> bool:
+        if ref_rms < 1e-3 or not speech:
+            self.run = 0
+            return False
+        ratio = mic_rms / ref_rms
+        if self.est is None:
+            self.est = ratio
+            return False
+        if ratio > self.factor * self.est and mic_rms > self.floor:
+            self.run += 1
+        else:
+            self.run = 0
+            self.est = 0.9 * self.est + 0.1 * ratio
+        return self.run >= self.frames_needed
+
+
 class Audio:
     def __init__(self, cfg: dict):
         a = cfg.get("audio", {})
@@ -23,6 +55,13 @@ class Audio:
         self._play_env = None            # (час старту, гучність по 50 мс) того, що зараз звучить
         self._last_play_end = 0.0
         self._play_lock = threading.Lock()   # нагадування з таймера не перебиває мову посередині
+        # перебивання голосом поверх Хомі (див. DoubleTalk)
+        self.barge_armed = threading.Event()
+        self.barged = threading.Event()
+        self._dt = DoubleTalk()
+        self._vad_cb = webrtcvad.Vad(2)
+        self._ref_hist: collections.deque = collections.deque(maxlen=200)   # (час, гучність виходу)
+        self.cut = threading.Event()         # «стоп» під час мови Хомі
         device = a.get("input_device") or None
         self.stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16",
                                         blocksize=FRAME_SAMPLES, device=device,
@@ -34,8 +73,8 @@ class Audio:
         self._out_lock = threading.Lock()
         self._out_empty = threading.Event()
         self._out_empty.set()
-        self.cut = threading.Event()         # «стоп» під час мови Хомі
-        self._dither = (np.random.default_rng(0).standard_normal(OUT_RATE) * 1e-4).astype(np.float32)
+        level = 10 ** (float(a.get("keepalive_db", -80)) / 20)
+        self._dither = (np.random.default_rng(0).standard_normal(OUT_RATE) * level).astype(np.float32)
         self._dither_pos = 0
         try:
             self.out_stream = sd.OutputStream(samplerate=OUT_RATE, channels=1, dtype="float32",
@@ -50,6 +89,8 @@ class Audio:
             n = min(frames, len(self._out))
             outdata[:n, 0] = self._out[:n]
             outdata[n:, 0] = 0.0
+            if n:
+                self._ref_hist.append((time.time(), float(np.sqrt(np.mean(self._out[:n] ** 2)))))
             self._out = self._out[n:]
             if not len(self._out):
                 self._out_empty.set()
@@ -72,6 +113,23 @@ class Audio:
         self.frames.put(raw)
         x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
         self.mic_level = float(np.sqrt(np.mean(x * x)) / 32768.0)
+        if self.barge_armed.is_set() and len(raw) == FRAME_SAMPLES * 2:
+            now = time.time()
+            ref = max((r for t, r in list(self._ref_hist) if now - t < 0.3), default=0.0)
+            try:
+                speech = self._vad_cb.is_speech(raw, RATE)
+            except Exception:
+                speech = False
+            if self._dt.update(self.mic_level, ref, speech):
+                self.barge_armed.clear()
+                self.barged.set()
+                self.stop_playback()
+
+    def arm_barge_in(self, on: bool):
+        """Під час відповіді Хомі: стежити, чи не заговорив ти поверх неї."""
+        self.barged.clear()
+        self._dt.reset()
+        (self.barge_armed.set if on else self.barge_armed.clear)()
 
     def level(self) -> float:
         """Гучність 0..1 для «живої сфери»: голос Хомі, коли вона говорить, інакше мікрофон."""

@@ -88,6 +88,10 @@ def test_unfinished_phrase_waits_longer():
     assert unfinished("Розкажи про") == 1.5
     assert unfinished("Котра година") == 0.6
     assert unfinished("Привіт, як справи?") == 0.0
+    assert unfinished("Я хочу.") == 1.5                  # розпізнавач поставив крапку на паузі
+    assert unfinished("Нагадай.") == 1.5
+    assert unfinished("Привіт.") == 0.7
+    assert unfinished("Яка завтра погода в Києві.") == 0.0
 
 
 def test_interrupt_request():
