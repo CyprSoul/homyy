@@ -60,10 +60,16 @@ def split_sentences(text: str, max_len: int = 220) -> list[str]:
         p = p.strip()
         if not p:
             continue
-        if out and (len(out[-1]) < 25 or len(out[-1]) + len(p) < 60):
-            out[-1] += " " + p          # короткі речення склеюємо з наступним
+        # короткі речення склеюємо з наступним — але не перше: чим воно коротше, тим швидше Хомі заговорить
+        if out and (len(out) > 1 or len(out[0]) < 12) and (len(out[-1]) < 25 or len(out[-1]) + len(p) < 60):
+            out[-1] += " " + p
         else:
             out.append(p)
+    if out and len(out[0]) > 70:        # довге перше речення ділимо по комі
+        m = re.search(r",\s+", out[0][20:])
+        if m:
+            cut = 20 + m.end()
+            out[0:1] = [out[0][:cut].rstrip(), out[0][cut:]]
     return [s[:max_len] for s in out]
 
 

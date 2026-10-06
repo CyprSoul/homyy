@@ -44,3 +44,10 @@ def test_ollama_options_same_everywhere():
     assert ollama_options(cfg) == {"num_ctx": 16384, "num_thread": 8}
     assert ollama_options(cfg, temperature=0.4)["temperature"] == 0.4
     assert ollama_options({"ollama": {}}) == {"num_ctx": 32768}
+
+
+def test_fix_gender():
+    from agent.brain import fix_gender
+    assert fix_gender("Була радий допомогти, Ігорю!") == "Була рада допомогти, Ігорю!"
+    assert fix_gender("Я радий тебе чути") == "Я рада тебе чути"
+    assert fix_gender("Тимофій радий") == "Тимофій радий"

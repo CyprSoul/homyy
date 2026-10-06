@@ -30,6 +30,17 @@ _TRAILING_TIME = re.compile(r"\s*(А )?(зараз|вже|до речі,? зар
                             re.IGNORECASE)
 
 
+_MASC_FIXES = [(re.compile(r"\b(Була|була|Я|я|Я була|я була) радий\b"), r"\1 рада"),
+               (re.compile(r"\bБув радий\b"), "Була рада"), (re.compile(r"\bбув радий\b"), "була рада")]
+
+
+def fix_gender(answer: str) -> str:
+    """Gemma інколи збивається на чоловічий рід у прощаннях («Була радий») — Хомі дівчина."""
+    for rx, repl in _MASC_FIXES:
+        answer = rx.sub(repl, answer)
+    return answer
+
+
 def strip_unasked_time(question: str, answer: str) -> str:
     """Gemma любить додавати «Зараз 23:45.» у кінець — прибираємо, якщо про час не питали."""
     if any(w in question.lower() for w in _TIME_WORDS):
@@ -130,7 +141,7 @@ class Brain:
             msg = self._chat(messages)
             calls = msg.get("tool_calls") or []
             if not calls:
-                answer = strip_unasked_time(user_text, (msg.get("content") or "").strip())
+                answer = fix_gender(strip_unasked_time(user_text, (msg.get("content") or "").strip()))
                 self.history.append({"role": "assistant", "content": answer})
                 return answer
             messages.append({"role": "assistant", "content": msg.get("content", ""), "tool_calls": calls})

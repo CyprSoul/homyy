@@ -24,7 +24,17 @@ def load_config(path: Path | None = None) -> dict:
     if path.exists() and path != EXAMPLE:
         with open(path, "rb") as f:
             cfg = _merge(cfg, tomllib.load(f))
-    return cfg
+    return _fix_localhost(cfg)
+
+
+def _fix_localhost(v):
+    """«localhost» у Windows спершу пробує IPv6 (::1), а Ollama слухає лише IPv4 —
+    кожен запит чекає ~2 с, поки Windows здасться. 127.0.0.1 — одразу."""
+    if isinstance(v, dict):
+        return {k: _fix_localhost(x) for k, x in v.items()}
+    if isinstance(v, str) and v.startswith(("http://localhost", "https://localhost")):
+        return v.replace("://localhost", "://127.0.0.1", 1)
+    return v
 
 
 def ollama_options(cfg: dict, **extra) -> dict:
