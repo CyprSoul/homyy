@@ -48,8 +48,17 @@ class Brain:
         self.history: list[dict] = []
         self.last_turn = 0.0
         self.stats: list[str] = []          # таймінги Ollama за останнє питання (для журналу)
+        self._mem_cache: list[str] = []
+        self._mem_time = 0.0
 
     def _memories(self) -> list[str]:
+        # Пам'ять про тебе змінюється рідко — тримаємо копію 2 хв, щоб не чекати Open WebUI щоразу.
+        if time.time() - self._mem_time < 120:
+            return self._mem_cache
+        self._mem_cache, self._mem_time = self._fetch_memories(), time.time()
+        return self._mem_cache
+
+    def _fetch_memories(self) -> list[str]:
         ow = self.cfg.get("openwebui", {})
         if not ow.get("api_key"):
             return []
@@ -99,8 +108,10 @@ class Brain:
         ev, ev_n = d.get("eval_duration", 0) / ns, d.get("eval_count", 0)
         if not (load or pe or ev):
             return
+        total = d.get("total_duration", 0) / ns
         self.stats.append(f"завантаження {load:.1f} с, промпт {pe_n} ток. за {pe:.1f} с, "
-                          f"відповідь {ev_n} ток. за {ev:.1f} с ({ev_n / ev if ev else 0:.0f} ток/с)")
+                          f"відповідь {ev_n} ток. за {ev:.1f} с ({ev_n / ev if ev else 0:.0f} ток/с), "
+                          f"разом в Ollama {total:.1f} с")
 
     def ask(self, user_text: str, on_tool=None) -> str:
         if time.time() - self.last_turn > HISTORY_IDLE_RESET_S:
@@ -128,5 +139,7 @@ class Brain:
                 if on_tool:
                     on_tool(fn["name"], fn.get("arguments") or {})
                 result = self.tools.call(fn["name"], fn.get("arguments") or {})
+                if fn["name"] == "remember":
+                    self._mem_time = 0.0          # новий факт — наступного разу перечитати пам'ять
                 messages.append({"role": "tool", "tool_name": fn["name"], "content": result + STYLE_REMINDER})
         return "Ой, я заплуталась з інструментами. Спитай, будь ласка, ще раз."
