@@ -2,6 +2,7 @@
 
 Запуск (Хомі має бути вимкнена):  .venv\\Scripts\\python -m agent.bench
                  з порівнянням розпізнавання на відеокарті:  ... -m agent.bench --gpu
+                 інша модель (config.toml не змінюється):     ... -m agent.bench --gpu --model gemma4:12b
 
 Що робить: Марічка озвучує фразу → Whisper її розпізнає → Gemma відповідає → Марічка озвучує
 перше речення відповіді. Кожен етап — 3 рази, у кінці таблиця. Результат також у agent\\bench.txt.
@@ -81,6 +82,9 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8")
     cfg = load_config()
     o, s = cfg["ollama"], cfg["stt"]
+    if "--model" in sys.argv:                      # спробувати іншу модель, не чіпаючи config.toml
+        o["model"] = sys.argv[sys.argv.index("--model") + 1]
+        cfg["ollama"]["keep_alive"] = "5m"
     say("Налаштування, з якими міряю:")
     say(f"  Gemma: {o['model']}, {ollama_options(cfg)}")
     say(f"  Розпізнавання: {s['model']} на {s.get('device', 'auto')}, потоків {s.get('cpu_threads')}")
