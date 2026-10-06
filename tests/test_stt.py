@@ -27,15 +27,14 @@ class FakeWhisper:
         return [types.SimpleNamespace(text=" Привіт, як справи?")], None
 
 
-CFG = {"stt": {"engine": "canary", "wake_model": "small", "model": "large-v3-turbo", "whisper_fallback": False}}
+CFG = {"stt": {"engine": "canary", "wake_model": "small", "model": "large-v3-turbo", "fallback_engine": "none"}}
 
 
 def make(monkeypatch, text, engine="canary"):
     fake = FakeOnnx(text)
 
     def load(self, eng):
-        self.onnx_opts = {"language": "uk"} if eng == "canary" else {}
-        return fake
+        return fake, ({"language": "uk"} if eng == "canary" else {})
     monkeypatch.setattr(stt_mod, "WhisperModel", lambda *a, **k: object())
     monkeypatch.setattr(stt_mod.STT, "_load_onnx", load)
     s = stt_mod.STT({"stt": dict(CFG["stt"], engine=engine)})
@@ -55,3 +54,16 @@ def test_wrong_language_goes_to_whisper(monkeypatch):
     s.cpu_model = FakeWhisper()
     assert s.command(np.zeros(1600, dtype=np.int16)) == "Привіт, як справи?"
     assert s.fallbacks == 1 and s.last_engine == "whisper"
+
+
+def test_parakeet_wrong_language_goes_to_canary(monkeypatch):
+    s, _ = make(monkeypatch, "Ты тут, приведя кто расправы.", engine="parakeet")
+    s.backup, s.backup_opts = FakeOnnx("Ти тут, привіт, як справи?"), {"language": "uk"}
+    assert s.command(np.zeros(1600, dtype=np.int16)) == "Ти тут, привіт, як справи?"
+    assert s.last_engine == "parakeet→canary"
+
+
+def test_parakeet_short_latin_is_noise(monkeypatch):
+    s, _ = make(monkeypatch, "Uh", engine="parakeet")
+    s.backup = FakeOnnx("Дякую.")          # Canary на шумі вигадує «Дякую» — навіть не питаємо
+    assert s.command(np.zeros(1600, dtype=np.int16)) == ""

@@ -46,14 +46,20 @@ class STT:
 
         self.cpu_model = None
         self.gpu_model = None
-        self.onnx = None                 # Canary / Parakeet (onnx-asr, процесор)
+        self.onnx = None                 # Parakeet / Canary (onnx-asr, процесор)
         self.onnx_opts: dict = {}
+        self.backup = None               # запасний: Canary з примусовою українською
+        self.backup_opts: dict = {}
         self.engine = s.get("engine", "whisper")
         if self.engine in ("canary", "parakeet"):
-            self.onnx = self._load_onnx(self.engine)
-            if self.onnx is None and self.engine == "canary":     # не вийшло — пробуємо Parakeet
-                self.engine = "parakeet"
-                self.onnx = self._load_onnx("parakeet")
+            self.onnx, self.onnx_opts = self._load_onnx(self.engine)
+            other = "canary" if self.engine == "parakeet" else "parakeet"
+            if self.onnx is None:                                  # не вийшло — пробуємо інший
+                self.engine = other
+                self.onnx, self.onnx_opts = self._load_onnx(other)
+            elif self.engine == "parakeet" and s.get("fallback_engine", "canary") == "canary":
+                # Parakeet сам вгадує мову й інколи пише російською — тоді перепитуємо Canary (≈0.2 с)
+                threading.Thread(target=self._load_backup, daemon=True).start()
         if self.onnx is None:
             self.engine = "whisper"
             print(f"Завантажую модель для команд: {s['model']} (перший раз — кілька хвилин)…")
@@ -61,9 +67,12 @@ class STT:
                 self.load_gpu()
             if self.gpu_model is None:
                 self._ensure_cpu()
-        elif s.get("whisper_fallback", True):
-            # запасний Whisper на процесорі — якщо Parakeet/Canary видасть не українську
+        elif s.get("whisper_fallback", False):
             threading.Thread(target=self._ensure_cpu, daemon=True).start()
+
+    def _load_backup(self):
+        model, opts = self._load_onnx("canary")
+        self.backup_opts, self.backup = opts, model
 
     @property
     def parakeet(self):                  # сумісність: «чи працює швидке розпізнавання»
@@ -87,13 +96,13 @@ class STT:
                                             providers=["CPUExecutionProvider"], sess_options=opts)
             except Exception:
                 model = onnx_asr.load_model(name, providers=["CPUExecutionProvider"], sess_options=opts)
-            self.onnx_opts = {"language": self.language} if engine == "canary" else {}
-            model.recognize(np.zeros(16000, dtype=np.float32), sample_rate=16000, **self.onnx_opts)  # прогрів
+            opts_ = {"language": self.language} if engine == "canary" else {}
+            model.recognize(np.zeros(16000, dtype=np.float32), sample_rate=16000, **opts_)  # прогрів
             print(f"Розпізнавання команд — {engine} на процесорі ⚡")
-            return model
+            return model, opts_
         except Exception as e:
             print(f"{engine} не завантажився ({str(e)[:160]}).")
-            return None
+            return None, {}
 
     def _ensure_cpu(self):
         if self.cpu_model is None:
@@ -137,11 +146,21 @@ class STT:
     def command(self, pcm: np.ndarray) -> str:
         with self.lock:                  # голос із мікрофона й голосові з Telegram — по черзі
             if self.onnx is not None:
-                text = str(self.onnx.recognize(self._f32(pcm), sample_rate=16000, **self.onnx_opts)).strip()
-                if looks_ukrainian(text) or self.cpu_model is None:
-                    self.last_engine = self.engine
+                wav = self._f32(pcm)
+                text = str(self.onnx.recognize(wav, sample_rate=16000, **self.onnx_opts)).strip()
+                self.last_engine = self.engine
+                if looks_ukrainian(text):
                     return text
-                self.fallbacks += 1          # вийшло не українською — перепитуємо Whisper (≈3 с)
+                if len(text.split()) <= 2 and not any("а" <= c <= "ї" for c in text.lower()):
+                    return ""                # «Uh», «Hm» — шум, а не мова
+                self.fallbacks += 1          # вийшло не українською — перепитуємо Canary, потім Whisper
+                if self.backup is not None:
+                    alt = str(self.backup.recognize(wav, sample_rate=16000, **self.backup_opts)).strip()
+                    self.last_engine = f"{self.engine}→canary"
+                    if looks_ukrainian(alt) or self.cpu_model is None:
+                        return alt
+                if self.cpu_model is None:
+                    return text
             self.last_engine = "whisper"
             segs, _ = self.model.transcribe(self._f32(pcm), language=self.language, beam_size=self.beam_size,
                                             condition_on_previous_text=False, vad_filter=True)

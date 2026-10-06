@@ -30,7 +30,7 @@ def main():
 
     engines = {}
     for name in ("canary", "parakeet", "whisper"):
-        c = {**cfg, "stt": {**cfg["stt"], "engine": name, "whisper_fallback": False, "device": "cpu"}}
+        c = {**cfg, "stt": {**cfg["stt"], "engine": name, "whisper_fallback": False, "fallback_engine": "none", "device": "cpu"}}
         try:
             stt = STT(c)
             if stt.engine == name:
