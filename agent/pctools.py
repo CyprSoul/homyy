@@ -63,6 +63,13 @@ def apply_plan(folder: Path, plan: dict[str, list[Path]]) -> int:
     return moved
 
 
+def _run(cmd, **kw):
+    """Системна команда без вікна консолі (Хомі працює без терміналу — чорні вікна не потрібні)."""
+    if sys.platform == "win32":
+        kw.setdefault("creationflags", 0x08000000)      # CREATE_NO_WINDOW
+    return subprocess.run(cmd, **kw)
+
+
 class PcTools:
     """Домішка до Tools: схеми й виконання інструментів керування ПК."""
 
@@ -134,12 +141,12 @@ class PcTools:
         if ask:
             return ask
         if sys.platform == "win32":
-            subprocess.run(["shutdown", "/s", "/t", str(minutes * 60)], check=False)
+            _run(["shutdown", "/s", "/t", str(minutes * 60)], check=False)
         return f"Готово: комп'ютер вимкнеться {when}. Скасувати — «скасуй вимкнення»."
 
     def _t_cancel_shutdown(self) -> str:
         if sys.platform == "win32":
-            subprocess.run(["shutdown", "/a"], check=False)
+            _run(["shutdown", "/a"], check=False)
         return "Вимкнення скасовано."
 
     def _t_sleep_pc(self, confirmed: bool = False) -> str:
@@ -147,7 +154,7 @@ class PcTools:
         if ask:
             return ask
         if sys.platform == "win32":
-            threading.Timer(3, lambda: subprocess.run(
+            threading.Timer(3, lambda: _run(
                 ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"], check=False)).start()
         return "Добре, за 3 секунди засинаю разом із комп'ютером."
 
@@ -171,7 +178,7 @@ class PcTools:
     def _find_processes(self, name: str) -> list[str]:
         if sys.platform != "win32":
             return []
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, check=False).stdout
+        out = _run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, check=False).stdout
         q = name.lower().replace(" ", "").removesuffix(".exe")
         names = {line.split('","')[0].strip('"') for line in out.splitlines() if line}
         protected = {"explorer.exe", "csrss.exe", "winlogon.exe", "svchost.exe", "lsass.exe", "dwm.exe",
@@ -187,12 +194,12 @@ class PcTools:
         if ask:
             return ask
         for p in procs:
-            subprocess.run(["taskkill", "/IM", p, "/T"], check=False, capture_output=True)
+            _run(["taskkill", "/IM", p, "/T"], check=False, capture_output=True)
         time.sleep(2)
         # Discord, Steam, Telegram на «закрити» лише ховаються в трей — тоді закриваємо примусово
         left = [p for p in self._find_processes(name) if p in procs] if sys.platform == "win32" else []
         for p in left:
-            subprocess.run(["taskkill", "/IM", p, "/T", "/F"], check=False, capture_output=True)
+            _run(["taskkill", "/IM", p, "/T", "/F"], check=False, capture_output=True)
         return f"Закрила: {', '.join(procs) or name}."
 
     def _t_take_screenshot(self) -> str:
