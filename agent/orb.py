@@ -26,7 +26,7 @@ W, H = 150, 168
 R = 40            # радіус сфери
 
 
-def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
+def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking"):
     # Ctrl+C у вікні Хомі долітає й до процесу сфери і рве малювання посеред кадру
     # (звідси лавина «QPainter…»). Сферу закриває головний процес — тут Ctrl+C ігноруємо.
     import signal
@@ -35,6 +35,18 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
     from PySide6.QtGui import (QColor, QFont, QPainter, QPainterPath, QPen,
                                QRadialGradient)
     from PySide6.QtWidgets import QApplication, QMenu, QWidget
+
+    # Нова сфера з точок (thinking-orbs, як на schoolees.github.io/thinking-orbs) — через вбудований
+    # браузер Qt. Немає модуля (PySide6-Addons) — малюємо стару сферу.
+    WebView = None
+    if style == "thinking":
+        try:
+            from PySide6.QtCore import QCoreApplication, QUrl
+            from PySide6.QtWebEngineWidgets import QWebEngineView as WebView
+            QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
+        except Exception:
+            WebView = None
+    WEB_PAGE = Path(__file__).resolve().parent / "orb_web" / "orb.html"
 
     def qc(rgb, a=255, k=1.0, white=0.0):
         r, g, b = (min(255, int(c * k + (255 - c * k) * white)) for c in rgb)
@@ -60,6 +72,36 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.step)
             self.timer.start(16)
+            self.web = None
+            if WebView is not None and WEB_PAGE.exists():
+                self.web = WebView(self)
+                self.web.setGeometry(0, 0, W, H)
+                self.web.page().setBackgroundColor(Qt.transparent)
+                self.web.setAttribute(Qt.WA_TranslucentBackground)
+                self.web.setContextMenuPolicy(Qt.NoContextMenu)
+                self.web.load(QUrl.fromLocalFile(str(WEB_PAGE)))
+                self._sent_state, self._sent_level, self._level_t = None, -1.0, 0.0
+                # прозорий шар зверху: клік / перетягування / меню — як і раніше
+                orb = self
+
+                class MouseLayer(QWidget):
+                    def mousePressEvent(self, e): orb.mousePressEvent(e)
+                    def mouseMoveEvent(self, e): orb.mouseMoveEvent(e)
+                    def mouseReleaseEvent(self, e): orb.mouseReleaseEvent(e)
+                    def contextMenuEvent(self, e): orb.contextMenuEvent(e)
+                self.layer = MouseLayer(self)
+                self.layer.setGeometry(0, 0, W, H)
+                self.layer.raise_()
+
+        def send_web(self):
+            """Передає стан і гучність голосу в сферу з точок (не частіше 20 разів на секунду)."""
+            if self.state != self._sent_state:
+                self._sent_state = self.state
+                self.web.page().runJavaScript(f"window.setHomyyState && setHomyyState('{self.state}')")
+            now = time.perf_counter()
+            if now - self._level_t > 0.05 and abs(self.level - self._sent_level) > 0.02:
+                self._level_t, self._sent_level = now, self.level
+                self.web.page().runJavaScript(f"window.setLevel && setLevel({self.level:.3f})")
 
         def set_game_look(self, game: bool):
             """У грі: напівпрозорий джойстик, кліки проходять крізь нього в гру, мало кадрів."""
@@ -69,7 +111,9 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             self.setWindowOpacity(0.6 if game else 1.0)
             self.setWindowFlag(Qt.WindowTransparentForInput, game)
             self.timer.setInterval(100 if game else 16)
-            self.show()                       # після зміни прапорців вікно треба показати знову
+            self.show()
+            if getattr(self, "layer", None) is not None:
+                self.layer.setAttribute(Qt.WA_TransparentForMouseEvents, game)                       # після зміни прапорців вікно треба показати знову
 
         # ---- дані від голосової Хомі ----------------------------------
         def step(self):
@@ -103,7 +147,9 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             self.wobble += (wobble - self.wobble) * k
             self.level *= 0.92
             self.phase = (self.phase + dt * self.speed * (1 + 2 * self.level)) % 10000.0
-            if self.isVisible():
+            if self.web is not None:
+                self.send_web()
+            elif self.isVisible():
                 self.update()
 
         # ---- малювання ------------------------------------------------
@@ -166,6 +212,8 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
             p.drawEllipse(QPointF(cx, cy), 3.8, 3.8)
 
         def paintEvent(self, _):
+            if self.web is not None:          # малює сфера з точок у вбудованому браузері
+                return
             # Painter завжди закриваємо: інакше одна помилка малювання тягне за собою нескінченний
             # потік «QPainter::begin…» у консоль і гальмує весь ПК.
             p = QPainter(self)
@@ -301,7 +349,6 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
     qInstallMessageHandler(_qt_messages)
 
     app = QApplication([])
-    from pathlib import Path
     from PySide6.QtGui import QIcon
     icon = Path(__file__).resolve().parent / "assets" / "homyy.ico"
     if icon.exists():
@@ -314,10 +361,10 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str):
 class OrbClient:
     """Те, що бачить голосова Хомі: set_state / set_level / події кліку."""
 
-    def __init__(self, position: str = "bottom-right"):
+    def __init__(self, position: str = "bottom-right", style: str = "thinking"):
         ctx = mp.get_context("spawn")
         self.cmd_q, self.evt_q = ctx.Queue(), ctx.Queue()
-        self.proc = ctx.Process(target=_run, args=(self.cmd_q, self.evt_q, position), daemon=True)
+        self.proc = ctx.Process(target=_run, args=(self.cmd_q, self.evt_q, position, style), daemon=True)
         self.proc.start()
 
     def set_state(self, state: str):

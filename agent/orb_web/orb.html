@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<title>Хомі</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+  #wrap { position: absolute; left: 50%; top: 14px; width: 128px; height: 128px; transform: translateX(-50%);
+          transition: filter .6s ease, opacity .6s ease; }
+  #orb canvas { display: block; }
+  #caption { position: absolute; left: 0; right: 0; top: 146px; text-align: center; color: #f5f5fa;
+             font: 600 12px "Segoe UI", system-ui, sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,.85);
+             transition: opacity .3s; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="orb"></div></div>
+<div id="caption"></div>
+<script>
+  // Колір точок = колір стану Хомі (замість сірого в оригіналі)
+  window.__tintColor = [139, 92, 246];
+  window.__tint = function (g, a) {
+    const b = g / 255, c = window.__tintColor, w = Math.max(0, b - 0.72) * 3.2;   // найближчі точки — майже білі
+    const ch = i => Math.round(Math.min(255, c[i] * (0.35 + 0.75 * b) + 255 * w));
+    return `rgba(${ch(0)},${ch(1)},${ch(2)},${a})`;
+  };
+</script>
+<script src="thinking-orbs.js"></script>
+<script>
+  const STATES = {
+    boot:   { mode: "connecting", color: [150, 160, 190], speed: 0.8, caption: "Прокидаюсь…" },
+    sleep:  { mode: "idle",       color: [139, 92, 246],  speed: 0.7, caption: "" },
+    listen: { mode: "listening",  color: [34, 211, 238],  speed: 1.0, caption: "Слухаю…" },
+    hear:   { mode: "working",    color: [59, 130, 246],  speed: 1.2, caption: "Розбираю…" },
+    think:  { mode: "solving",    color: [245, 158, 11],  speed: 1.2, caption: "Думаю…" },
+    search: { mode: "searching",  color: [245, 158, 11],  speed: 1.2, caption: "Шукаю…" },
+    speak:  { mode: "responding", color: [34, 197, 94],   speed: 1.0, caption: "" },
+    error:  { mode: "idle",       color: [239, 68, 68],   speed: 0.6, caption: "Щось не так" },
+    paused: { mode: "idle",       color: [90, 94, 110],   speed: 0.3, caption: "Пауза · не слухаю" },
+    game:   { mode: "idle",       color: [148, 163, 184], speed: 0.3, caption: "" },
+  };
+  const orb = new ThinkingOrbs.ThinkingOrb("#orb", { state: "idle", size: 128, theme: "dark", speed: 0.7 });
+  const wrap = document.getElementById("wrap"), caption = document.getElementById("caption");
+  let current = STATES.sleep, level = 0, shown = [139, 92, 246];
+
+  window.setHomyyState = function (name) {
+    const s = STATES[name] || STATES.sleep;
+    current = s;
+    orb.setState(s.mode);
+    orb.setVariant(name === "game" ? "contour" : "classic");
+    caption.textContent = s.caption;
+    wrap.style.opacity = name === "game" ? 0.55 : name === "paused" ? 0.6 : 1;
+  };
+  window.setLevel = function (x) { level = Math.max(0, Math.min(1, x)); };
+
+  // плавний перехід кольору й «дихання» в такт голосу
+  (function tick() {
+    for (let i = 0; i < 3; i++) shown[i] += (current.color[i] - shown[i]) * 0.08;
+    window.__tintColor = shown;
+    orb.setSpeed(current.speed * (1 + level * 1.8));
+    const [r, g, b] = shown.map(Math.round);
+    wrap.style.filter = `drop-shadow(0 0 ${8 + level * 14}px rgba(${r},${g},${b},${0.55 + level * 0.3}))`;
+    wrap.style.transform = `translateX(-50%) scale(${1 + level * 0.07})`;
+    level *= 0.9;
+    requestAnimationFrame(tick);
+  })();
+  setHomyyState("boot");
+</script>
+</body>
+</html>

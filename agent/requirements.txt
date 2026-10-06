@@ -5,6 +5,7 @@ faster-whisper>=1.1.0
 miniaudio>=1.59
 requests>=2.31
 PySide6-Essentials>=6.7
+PySide6-Addons>=6.7          # вбудований браузер для сфери з точок
 pillow>=10
 onnxruntime>=1.17
 soundfile>=0.12
