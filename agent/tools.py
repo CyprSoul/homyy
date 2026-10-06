@@ -22,6 +22,46 @@ _VK = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1,
        "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD}
 
 
+def _smtc(action: str) -> str | None:
+    """Плеєр Windows (те, що показує панель гучності: YouTube у браузері, Spotify…).
+
+    Повертає чесний результат («Поставила на паузу» / «Зараз нічого не грає») або None,
+    якщо модуля winrt немає — тоді натискаємо медіаклавішу.
+    """
+    try:
+        import asyncio
+        from winrt.windows.media.control import \
+            GlobalSystemMediaTransportControlsSessionManager as Manager
+    except Exception:
+        return None
+
+    async def run():
+        mgr = await Manager.request_async()
+        session = mgr.get_current_session()
+        if session is None:
+            return "Зараз нічого не грає — нема що ставити на паузу чи перемикати."
+        status = lambda: int(session.get_playback_info().playback_status)     # 4 — грає, 5 — пауза
+        title = ""
+        try:
+            props = await session.try_get_media_properties_async()
+            title = f" «{props.title}»" if props and props.title else ""
+        except Exception:
+            pass
+        if action == "play_pause":
+            was_playing = status() == 4
+            ok = await (session.try_pause_async() if was_playing else session.try_play_async())
+            if not ok:
+                return "Плеєр не послухався."
+            return f"Поставила на паузу{title}." if was_playing else f"Продовжила{title}."
+        ok = await (session.try_skip_next_async() if action == "next" else session.try_skip_previous_async())
+        return ("Перемкнула." if ok else "Плеєр не дав перемкнути.")
+
+    try:
+        return asyncio.run(run())
+    except Exception:
+        return None
+
+
 def _schema(name, description, properties=None, required=None):
     return {"type": "function", "function": {
         "name": name, "description": description,
@@ -135,12 +175,19 @@ class Tools(PcTools):
         if action not in _VK:
             return f"Невідома дія: {action}"
         times = max(1, min(int(times or 1), 25))
-        if sys.platform == "win32":
-            import ctypes
-            for _ in range(times):
-                ctypes.windll.user32.keybd_event(_VK[action], 0, 0, 0)
-                ctypes.windll.user32.keybd_event(_VK[action], 0, 2, 0)
-        return f"Виконано: {action} ×{times}."
+        if sys.platform != "win32":
+            return f"Виконано: {action} ×{times}."
+        if action in ("play_pause", "next", "previous"):
+            done = _smtc(action)                 # керування плеєром Windows — з перевіркою результату
+            if done is not None:
+                return done
+        import ctypes
+        sc = ctypes.windll.user32.MapVirtualKeyW(_VK[action], 0)
+        for _ in range(times):
+            # медіаклавіші — «розширені» (KEYEVENTF_EXTENDEDKEY), без цього прапорця частина програм їх ігнорує
+            ctypes.windll.user32.keybd_event(_VK[action], sc, 1, 0)
+            ctypes.windll.user32.keybd_event(_VK[action], sc, 1 | 2, 0)
+        return f"Натиснула клавішу {action} ×{times} (чи спрацювало — не бачу)."
 
     def _t_play_music(self, query: str = "") -> str:
         """Відкриває YouTube Music так, щоб музика одразу заграла (сторінка «watch», а не головна)."""
