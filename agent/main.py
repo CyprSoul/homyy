@@ -16,7 +16,7 @@ import requests
 
 from .config import AGENT_DIR, load_config, ollama_options
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
-                   is_no, is_wake, is_yes, media_intent, split_wake, unfinished)
+                   is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 
@@ -304,6 +304,11 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
             elif intent:                      # «постав на паузу» — одразу, без Gemma
                 log("інструмент", f"media {{'action': '{intent}'}} (швидка команда)")
                 answer = brain.direct(text, "media", {"action": intent, "times": 3 if "volume" in intent else 1})
+            elif click_intent(text):         # «натисни на …» — одразу, без Gemma
+                target = click_intent(text)
+                log("інструмент", f"click_on_screen {{'text': '{target}'}} (швидка команда)")
+                brain.tools.last_user_text = text
+                answer = brain.direct(text, "click_on_screen", {"text": target})
             else:
                 answer = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
         except requests.RequestException as e:

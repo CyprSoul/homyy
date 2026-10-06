@@ -260,7 +260,9 @@ def interrupt_request(heard: str, speaking: str) -> str | None:
 _CLAIM = re.compile(r"\b(поставила|увімкнула|ввімкнула|вимкнула|відкрила|закрила|перемкнула|продовжила|"
                     r"зупинила|запустила|зробила (?:гучніше|тихіше)|заблокувала|запам'ятала|записала|"
                     r"нагадаю|поставила нагадування|вмикаю|вимикаю|відкриваю|закриваю|ставлю на паузу|"
-                    r"перемикаю|запускаю|блокую)\b", re.IGNORECASE)
+                    r"перемикаю|запускаю|блокую|натиснула|натискаю|натисну|клікну|клікнула|закрию|відкрию|"
+                    r"увімкну|вимкну|запущу|поставлю|перемкну|заблокую|запам'ятаю|запишу|зроблю скриншот|"
+                    r"зробила скриншот|знайшла файл)\b", re.IGNORECASE)
 
 
 def claims_action(answer: str) -> bool:
@@ -294,3 +296,16 @@ def media_intent(transcript: str) -> str | None:
         if rx.search(t):
             return action
     return None
+
+
+_CLICK = re.compile(r"^(?:натисни|натисніть|клікни|клацни|тисни|нажми|нажми на|натисни на|клікни на|клацни на)"
+                    r"\s+(?:на\s+)?(?:кнопку\s+|напис\s+)?(.+)$", re.IGNORECASE)
+
+
+def click_intent(transcript: str) -> str | None:
+    """«Натисни на igorko2018», «Клікни I don't agree» → що саме натиснути (без Gemma)."""
+    t = transcript.strip().strip(".!")
+    rest = split_wake(t)
+    t = (rest if rest else t).strip(" ,.")
+    m = _CLICK.match(t)
+    return m.group(1).strip(" «»\"'.,!") or None if m else None

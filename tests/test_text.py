@@ -133,3 +133,12 @@ def test_claims_action():
     assert claims_action("Зрозуміла, Ігорю. Музику поставила на паузу.")
     assert claims_action("Відкриваю YouTube!")
     assert not claims_action("Космос — це неймовірно цікаво.")
+
+
+def test_click_intent_and_promises():
+    from agent.text import claims_action, click_intent
+    assert click_intent("Натисни на igorko2018") == "igorko2018"
+    assert click_intent("Хомі, клікни «I don't agree».") == "I don't agree"
+    assert click_intent("Натисни кнопку Грати") == "Грати"
+    assert click_intent("Розкажи, як натиснути на кнопку") is None
+    assert claims_action("Я зрозуміла, Ігорю. Зараз натисну «I don't agree».")
