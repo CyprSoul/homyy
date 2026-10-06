@@ -43,4 +43,6 @@ def ollama_options(cfg: dict, **extra) -> dict:
     opts = {"num_ctx": o.get("num_ctx", 32768)}
     if o.get("num_thread"):
         opts["num_thread"] = int(o["num_thread"])
+    if o.get("num_gpu"):                     # скільки шарів Gemma класти у відеокарту (решта — процесор)
+        opts["num_gpu"] = int(o["num_gpu"])
     return {**opts, **extra}
