@@ -27,7 +27,8 @@ CATEGORIES = {
     "Програми": {".exe", ".msi", ".msix", ".appx"},
 }
 SKIP_SUFFIXES = {".crdownload", ".part", ".tmp", ".partial", ".download"}
-SEARCH_DIRS = ["Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music"]
+SEARCH_DIRS = ["Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music",
+               "OneDrive/Desktop", "OneDrive/Documents", "OneDrive/Pictures"]   # OneDrive часто «забирає» ці папки
 
 
 def category(path: Path) -> str:
@@ -99,6 +100,9 @@ class PcTools:
                    "Нічого не видаляє. Потребує підтвердження.", confirm),
             schema("find_file", "Знайти файл за частиною назви на Робочому столі, в Документах, Завантаженнях тощо.",
                    {"query": {"type": "string"}}, ["query"]),
+            schema("list_folder", "Що лежить у папці: «що в папці Games на робочому столі», «що в Завантаженнях». "
+                   "Папку шукає за назвою сама.",
+                   {"name": {"type": "string", "description": "Назва папки, напр. Games, Завантаження"}}, ["name"]),
         ]
 
     # ---- підтвердження ---------------------------------------------------
@@ -223,6 +227,50 @@ class PcTools:
             return ask
         moved = apply_plan(folder, plan)
         return f"Готово: розклала {moved} файлів ({summary}). Нічого не видалено."
+
+    _FOLDER_ALIASES = {"завантаження": "Downloads", "завантаженнях": "Downloads", "робочий стіл": "Desktop",
+                       "робочому столі": "Desktop", "документи": "Documents", "документах": "Documents",
+                       "зображення": "Pictures", "картинки": "Pictures", "музика": "Music", "відео": "Videos"}
+
+    def _find_folder(self, name: str) -> Path | None:
+        n = name.lower().strip().strip("«»\"'")
+        if n in self._FOLDER_ALIASES:
+            d = self._FOLDER_ALIASES[n]
+            for cand in (HOME / d, HOME / "OneDrive" / d):
+                if cand.is_dir():
+                    return cand
+            return HOME / d
+        p = Path(name)
+        if p.is_absolute() and p.is_dir():
+            return p
+        from .screen import app_similarity
+        best, score = None, 0.0
+        for d in SEARCH_DIRS:
+            base = HOME / d
+            for root, dirs, _ in os.walk(base):
+                if Path(root).relative_to(base).parts.__len__() >= 2:
+                    dirs[:] = []                     # глибше двох рівнів не шукаємо — швидко
+                for x in dirs:
+                    sc = app_similarity(name, x)
+                    if sc > score:
+                        best, score = Path(root) / x, sc
+        return best if score >= 0.8 else None
+
+    def _t_list_folder(self, name: str) -> str:
+        folder = self._find_folder(name)
+        if not folder or not folder.is_dir():
+            return f"Не знайшла папки «{name}»."
+        items = sorted(folder.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        if not items:
+            return f"Папка {folder} порожня."
+        dirs = [p.name for p in items if p.is_dir()]
+        files = [p.name for p in items if p.is_file()]
+        out = [f"У {folder}: папок {len(dirs)}, файлів {len(files)}."]
+        if dirs:
+            out.append("Папки: " + ", ".join(dirs[:40]))
+        if files:
+            out.append("Файли: " + ", ".join(files[:40]))
+        return "\n".join(out)
 
     def _t_find_file(self, query: str) -> str:
         q, found, seen = query.lower().strip(), [], 0

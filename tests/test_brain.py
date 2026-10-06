@@ -73,3 +73,16 @@ def test_claimed_action_without_tool_is_retried(monkeypatch):
     monkeypatch.setattr(b.tools, "call", lambda n, a: called.append((n, a)) or "Поставила на паузу «Пісня».")
     assert b.ask("Постав, будь ласка, музику на паузу, бо дзвонять") == "Поставила на паузу."
     assert called == [("media", {"action": "pause"})]
+
+
+def test_promise_without_result_is_followed_up(monkeypatch):
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "", "tool_calls": [{"function": {"name": "window", "arguments": {"action": "minimize_all"}}}]},
+        {"content": "Я згорнула всі вікна. Зараз я загляну в папку Games і скажу тобі, що там є."},
+        {"content": "", "tool_calls": [{"function": {"name": "list_folder", "arguments": {"name": "Games"}}}]},
+        {"content": "У папці Games: World of Tanks і CS2."},
+    ])
+    monkeypatch.setattr(b, "_chat", lambda m: next(replies))
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "ok")
+    assert b.ask("Згорни все і подивись, що в папці Games") == "У папці Games: World of Tanks і CS2."

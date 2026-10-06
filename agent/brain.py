@@ -6,7 +6,7 @@ from datetime import date, datetime
 import requests
 
 from .config import REPO_DIR, ollama_options
-from .text import claims_action, extract_prompt, ukr_date
+from .text import claims_action, extract_prompt, promises_more, ukr_date
 from .tools import Tools
 
 VOICE_RULES = """
@@ -171,12 +171,15 @@ class Brain:
         for _ in range(MAX_TOOL_ROUNDS + 1):
             msg = self._chat(messages)
             calls = msg.get("tool_calls") or []
-            if not calls and not used_tools and not nudged and claims_action(msg.get("content") or ""):
-                # Каже «поставила на паузу», а інструмент не викликала — це неправда. Просимо зробити.
+            content = msg.get("content") or ""
+            if not calls and not nudged and ((not used_tools and claims_action(content)) or promises_more(content)):
+                # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —
+                # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
                 nudged = True
-                messages.append({"role": "assistant", "content": msg.get("content") or ""})
-                messages.append({"role": "user", "content": "(Службове: ти ще нічого не зробила — інструмент "
-                                 "не викликано. Виконай дію через інструмент, а не словами.)"})
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": "(Службове: після твоєї відповіді ти вже нічого не "
+                                 "зробиш сама — у тебе немає «потім». Зроби обіцяне ЗАРАЗ через інструменти й дай "
+                                 "результат. Якщо жоден інструмент цього не вміє — чесно скажи, що не вмієш.)"})
                 continue
             if not calls:
                 answer = fix_gender(strip_unasked_time(user_text, (msg.get("content") or "").strip()))

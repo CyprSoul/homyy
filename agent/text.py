@@ -346,3 +346,13 @@ def foreign_speech(heard: str, speaking: str) -> bool:
         return False
     own = set(collapse(speaking).replace("'", "").split())
     return sum(w in own for w in words) / len(words) < 0.3
+
+
+_PROMISE = re.compile(r"\b(загляну|подивлюся|подивлюсь|гляну|пошукаю|перевірю|дізнаюся|дізнаюсь|розберуся|"
+                      r"дай мені (?:трохи |хвилинку |секунду )?часу|зачекай|хвилинку|секундочку|одну секунду|"
+                      r"скажу тобі, що там|зараз скажу|зараз знайду|зараз подивлюся)\b", re.IGNORECASE)
+
+
+def promises_more(answer: str) -> bool:
+    """Хомі закінчує відповідь обіцянкою («зараз загляну», «дай мені трохи часу») — а більше нічого не буде."""
+    return bool(_PROMISE.search(answer))

@@ -73,3 +73,18 @@ def test_confirmed_without_yes_is_refused():
     t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
     t.last_user_text = "Закрий дискорд"                 # модель сама поставила confirmed=true
     assert t._needs_yes("close_app", "discord", True, "Закрити") is not None
+
+
+def test_list_folder(tmp_path, monkeypatch):
+    import agent.pctools as pc
+    from agent.tools import Tools
+    games = tmp_path / "Desktop" / "Games"
+    (games / "World of Tanks").mkdir(parents=True)
+    (games / "cs2.lnk").write_text("x")
+    monkeypatch.setattr(pc, "HOME", tmp_path)
+    monkeypatch.setattr(pc, "SEARCH_DIRS", ["Desktop"])
+    t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
+    out = t.call("list_folder", {"name": "гейм"})
+    assert "Не знайшла" in out or "World of Tanks" in out
+    out = t.call("list_folder", {"name": "Games"})
+    assert "World of Tanks" in out and "cs2.lnk" in out
