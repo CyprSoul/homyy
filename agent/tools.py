@@ -199,8 +199,15 @@ class Tools(PcTools):
         """Відкриває YouTube Music так, щоб музика одразу заграла (сторінка «watch», а не головна)."""
         query = (query or "").strip()
         if not query:
+            # Плеєр уже відкритий (стоїть на паузі чи грає) — продовжуємо в ньому, а не нова вкладка
+            if sys.platform == "win32":
+                done = _smtc("play")
+                if done and not done.startswith("Зараз нічого не грає"):
+                    return done
             webbrowser.open("https://music.youtube.com/watch?list=LM")      # «Вподобані»
             return "Увімкнула твої вподобані пісні в YouTube Music."
+        if sys.platform == "win32":
+            _smtc("pause")                   # щоб стара вкладка не грала разом із новою
         video = self._first_video(query)
         if video:
             # після пісні YouTube Music сам продовжує схожими (радіо)
