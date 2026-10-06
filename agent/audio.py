@@ -10,6 +10,7 @@ import webrtcvad
 
 RATE = 16000
 FRAME_MS = 30
+OUT_RATE = 48000                 # частота виходу звуку (усе перераховуємо в неї)
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
 
 
@@ -27,6 +28,28 @@ class Audio:
                                         blocksize=FRAME_SAMPLES, device=device,
                                         callback=self._on_audio)
         self.stream.start()
+        # Вихід звуку тримаємо відкритим постійно (грає тишу): інакше навушники/звукова карта
+        # «прокидаються» на початку кожної фрази й з'їдають перші склади («…чір добрий»).
+        self._out = np.zeros(0, dtype=np.float32)
+        self._out_lock = threading.Lock()
+        self._out_empty = threading.Event()
+        self._out_empty.set()
+        try:
+            self.out_stream = sd.OutputStream(samplerate=OUT_RATE, channels=1, dtype="float32",
+                                              device=a.get("output_device") or None,
+                                              callback=self._on_output)
+            self.out_stream.start()
+        except Exception:
+            self.out_stream = None           # не вийшло — граємо по-старому через sd.play
+
+    def _on_output(self, outdata, frames, *_):
+        with self._out_lock:
+            n = min(frames, len(self._out))
+            outdata[:n, 0] = self._out[:n]
+            outdata[n:, 0] = 0.0
+            self._out = self._out[n:]
+            if not len(self._out):
+                self._out_empty.set()
 
     def _on_audio(self, data, *_):
         raw = bytes(data)
@@ -100,7 +123,7 @@ class Audio:
         # Після тиші звукова карта/навушники «прокидаються» і з'їдають перші ~200 мс —
         # тому перед першим звуком додаємо трохи тиші, і обрізається вже вона, а не слова.
         idle = time.time() - self._last_play_end
-        lead = 0.3 if idle > 2 else 0.03
+        lead = 0.15 if idle > 2 else 0.03
         samples = np.concatenate([np.zeros(int(rate * lead), dtype=samples.dtype), samples])
         x = samples.astype(np.float32)
         if samples.dtype == np.int16:
@@ -111,8 +134,17 @@ class Audio:
         peak = float(env.max()) if len(env) else 0.0
         with self._play_lock:
             self._play_env = (time.time(), env / peak if peak > 0 else env)
-            sd.play(samples, rate)
-            sd.wait()
+            if self.out_stream is not None:
+                y = np.interp(np.arange(int(len(x) * OUT_RATE / rate)) * rate / OUT_RATE,
+                              np.arange(len(x)), x).astype(np.float32)
+                with self._out_lock:
+                    self._out = np.concatenate([self._out, y])
+                    self._out_empty.clear()
+                self._out_empty.wait(timeout=len(y) / OUT_RATE + 3)
+                time.sleep(self.out_stream.latency)      # дограє те, що вже в буфері пристрою
+            else:
+                sd.play(samples, rate)
+                sd.wait()
             self._play_env = None
             self._last_play_end = time.time()
 
