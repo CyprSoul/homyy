@@ -121,6 +121,8 @@ def main():
     say(f"Gemma завантажилась за {time.time() - t:.0f} с ({gpu_share(cfg)})")
     brain, speaker = Brain(cfg), Speaker(cfg, audio=None)
     speaker._synth("Привіт.")                      # прогрів голосу
+    brain.ask("Привіт")                            # прогрів Gemma: перший запит не рахуємо
+    say(f"Gemma прогріта ({gpu_share(cfg)})")
     run_round("Як налаштовано зараз", cfg, stt, brain, speaker)
     if "--quality" in sys.argv:
         say(f"\n=== Розум і характер ({o['model']}) ===")
