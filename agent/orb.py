@@ -27,7 +27,7 @@ W, H = 150, 168
 R = 40            # радіус сфери
 
 
-def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking"):
+def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking", tint: bool = False):
     # Ctrl+C у вікні Хомі долітає й до процесу сфери і рве малювання посеред кадру
     # (звідси лавина «QPainter…»). Сферу закриває головний процес — тут Ctrl+C ігноруємо.
     import signal
@@ -80,8 +80,13 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
                 self.web.page().setBackgroundColor(Qt.transparent)
                 self.web.setAttribute(Qt.WA_TranslucentBackground)
                 self.web.setContextMenuPolicy(Qt.NoContextMenu)
-                self.web.load(QUrl.fromLocalFile(str(WEB_PAGE)))
+                url = QUrl.fromLocalFile(str(WEB_PAGE))
+                if tint:
+                    url.setQuery("tint=1")
+                self.web.load(url)
                 self._sent_state, self._sent_level, self._level_t = None, -1.0, 0.0
+                # сторінка вантажиться не миттєво — коли готова, ще раз передаємо стан
+                self.web.loadFinished.connect(lambda ok: setattr(self, "_sent_state", None))
                 # прозорий шар зверху: клік / перетягування / меню — як і раніше
                 orb = self
 
@@ -362,10 +367,10 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
 class OrbClient:
     """Те, що бачить голосова Хомі: set_state / set_level / події кліку."""
 
-    def __init__(self, position: str = "bottom-right", style: str = "thinking"):
+    def __init__(self, position: str = "bottom-right", style: str = "thinking", tint: bool = False):
         ctx = mp.get_context("spawn")
         self.cmd_q, self.evt_q = ctx.Queue(), ctx.Queue()
-        self.proc = ctx.Process(target=_run, args=(self.cmd_q, self.evt_q, position, style), daemon=True)
+        self.proc = ctx.Process(target=_run, args=(self.cmd_q, self.evt_q, position, style, tint), daemon=True)
         self.proc.start()
 
     def set_state(self, state: str):

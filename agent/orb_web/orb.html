@@ -6,7 +6,7 @@
 <style>
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
   #wrap { position: absolute; left: 50%; top: 14px; width: 128px; height: 128px; transform: translateX(-50%);
-          transition: filter .6s ease, opacity .6s ease; }
+          transition: opacity .6s ease; }
   #orb canvas { display: block; }
   #caption { position: absolute; left: 0; right: 0; top: 146px; text-align: center; color: #f5f5fa;
              font: 600 12px "Segoe UI", system-ui, sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,.85);
@@ -17,11 +17,13 @@
 <div id="wrap"><div id="orb"></div></div>
 <div id="caption"></div>
 <script>
-  // Колір точок = колір стану Хомі (замість сірого в оригіналі)
-  window.__tintColor = [139, 92, 246];
+  // Як на сайті: світлі точки без підсвітки. ?tint=1 — легкий відтінок кольору стану.
+  const TINT = new URLSearchParams(location.search).get("tint") === "1";
+  window.__tintColor = [255, 255, 255];
   window.__tint = function (g, a) {
-    const b = g / 255, c = window.__tintColor, w = Math.max(0, b - 0.72) * 3.2;   // найближчі точки — майже білі
-    const ch = i => Math.round(Math.min(255, c[i] * (0.35 + 0.75 * b) + 255 * w));
+    if (!TINT) return `rgba(${g},${g},${g},${a})`;
+    const b = g / 255, c = window.__tintColor;
+    const ch = i => Math.round(g * 0.6 + c[i] * b * 0.4);
     return `rgba(${ch(0)},${ch(1)},${ch(2)},${a})`;
   };
 </script>
@@ -58,9 +60,7 @@
     for (let i = 0; i < 3; i++) shown[i] += (current.color[i] - shown[i]) * 0.08;
     window.__tintColor = shown;
     orb.setSpeed(current.speed * (1 + level * 1.8));
-    const [r, g, b] = shown.map(Math.round);
-    wrap.style.filter = `drop-shadow(0 0 ${8 + level * 14}px rgba(${r},${g},${b},${0.55 + level * 0.3}))`;
-    wrap.style.transform = `translateX(-50%) scale(${1 + level * 0.07})`;
+    wrap.style.transform = `translateX(-50%) scale(${1 + level * 0.05})`;
     level *= 0.9;
     requestAnimationFrame(tick);
   })();

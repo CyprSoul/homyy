@@ -77,6 +77,7 @@ telegram = "tg://"
 widget = true            # кулька-віджет у кутку екрана
 position = "bottom-right"  # або "top-left"
 orb_style = "thinking"    # "thinking" — сфера з точок (thinking-orbs); "classic" — стара жива сфера
+orb_tint = false          # true — точки з легким відтінком кольору стану (на сайті — просто світлі)
 announce_ready = true     # сказати «Я готова!», коли Gemma завантажилась після запуску
 greet = true             # привітатися голосом після запуску
 
