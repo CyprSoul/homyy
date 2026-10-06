@@ -5,6 +5,6 @@ Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" 
   Where-Object { $_.CommandLine -match '-m agent' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 git pull
-ollama stop gemma4:26b 2>$null
+ollama stop gemma4:26b 2>&1 | Out-Null
 Start-Process -FilePath ".\.venv\Scripts\pythonw.exe" -ArgumentList "-m agent" -WorkingDirectory (Get-Location)
-Write-Host "Хомі перезапущена. Журнал: agent\homyy.log"
+Write-Host "Хомі перезапущена. Дивитися, що вона пише: .\scripts\watch-log.cmd (або Get-Content agent\homyy.log -Wait -Tail 20)"
