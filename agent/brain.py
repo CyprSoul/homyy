@@ -10,13 +10,15 @@ from .text import claims_action, extract_prompt, promises_more, ukr_date
 from .tools import Tools
 
 VOICE_RULES = """
-ГОЛОСОВИЙ РЕЖИМ
-- Зараз ми говоримо голосом: тебе чують через колонки, а мене ти чуєш через мікрофон.
-- Відповідай 1–3 короткими реченнями, без списків, емодзі й розмітки.
-- Час і дати пиши цифрами (20:04, 5 жовтня 2026) — голос прочитає їх правильно. Не переводь час у слова.
-- Якщо щось незрозуміло (мене могло погано розпізнати) — перепитай.
-- Ти дівчина й у прощаннях теж: «Рада була поговорити», «Я була рада допомогти» — ніколи не «радий».
-- Для часу, дат, пошуку, пам'яті, музики, програм і керування комп'ютером використовуй свої інструменти.
+ГОЛОСОВИЙ РЕЖИМ — ЦЕ ГОЛОВНЕ
+- Ми говоримо голосом. Відповідай 1–2 короткими реченнями, як у живій розмові. Без списків, емодзі, розмітки й «лекцій».
+- ДІЙ, а не пропонуй. Просять пошукати, відкрити, показати, увімкнути — одразу роби інструментом і коротко кажи результат.
+  Ніколи не закінчуй словами «Хочеш, я пошукаю/знайду/покажу?» — просто зроби це.
+- «Покажи», «відкрий і покажи» — відкрий у браузері (search_on_site або open_website), а не розповідай.
+- Перепитуй лише тоді, коли прохання зовсім незрозуміле. Якщо зрозуміло хоч приблизно — роби найімовірніше.
+- Не хвали ідеї й не пиши вступів («Це звучить як дуже крута ідея…») — одразу по суті.
+- Час і дати пиши цифрами (20:04, 5 жовтня 2026) — голос прочитає їх правильно.
+- Ти дівчина й у прощаннях теж: «Рада була поговорити» — ніколи не «радий».
 - Якщо інструмент каже «ПОТРІБНЕ ПІДТВЕРДЖЕННЯ» — лише коротко перепитай і чекай відповіді.
 """
 
@@ -112,7 +114,8 @@ class Brain:
         payload = {
             "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
             "stream": False, "think": False, "keep_alive": o.get("keep_alive", "30m"),
-            "options": ollama_options(self.cfg, temperature=o.get("temperature", 0.4)),
+            "options": ollama_options(self.cfg, temperature=o.get("temperature", 0.4),
+                                      num_predict=int(o.get("voice_max_tokens", 160))),   # голосом — коротко
         }
         for attempt in range(2):   # перший запит після простою іноді падає, поки модель вантажиться
             r = requests.post(f"{o['url']}/api/chat", timeout=300, json=payload)
@@ -124,7 +127,9 @@ class Brain:
                 break
             time.sleep(3)
         r.raise_for_status()
-        return r.json()["message"]
+        data = r.json()
+        self.cut_short = data.get("done_reason") == "length"
+        return data["message"]
 
     def _note_stats(self, d: dict):
         """Звідки береться затримка: завантаження моделі, читання промпта чи сама відповідь."""
@@ -182,7 +187,11 @@ class Brain:
                                  "результат. Якщо жоден інструмент цього не вміє — чесно скажи, що не вмієш.)"})
                 continue
             if not calls:
-                answer = fix_gender(strip_unasked_time(user_text, (msg.get("content") or "").strip()))
+                text_ = (msg.get("content") or "").strip()
+                if getattr(self, "cut_short", False):          # уперлася в ліміт — без обірваного речення
+                    m = re.match(r"(?s)(.*[.!?…])", text_)
+                    text_ = m.group(1) if m else text_
+                answer = fix_gender(strip_unasked_time(user_text, text_))
                 answer = fix_vocative(answer, self.cfg["user"])
                 self.history.append({"role": "assistant", "content": answer})
                 return answer

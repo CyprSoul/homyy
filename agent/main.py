@@ -19,7 +19,7 @@ from .config import AGENT_DIR, load_config, ollama_options
 from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
-                   wants_selection, window_intent, foreign_speech, folder_intent)
+                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -282,6 +282,7 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 sleep(audio)
                 return
             text, t_said, stt_s = heard
+            text = fix_command(text)
             if is_noise(text) or is_wake(text, 9.0, 0.0, 2):   # шум або просто повторене «Хомі»
                 announce = False
                 continue

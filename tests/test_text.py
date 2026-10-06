@@ -161,3 +161,15 @@ def test_folder_intent():
     assert folder_intent("Що лежить у папці завантаження") == ("list_folder", "завантаження")
     assert folder_intent("Відкрий папку Games") == ("open_folder", "games")
     assert folder_intent("Що таке папка?") is None
+
+
+def test_dialog_fixes():
+    from agent.text import fix_command, foreign_speech, promises_more
+    assert fix_command("Пошукаю в інтернеті сферу") == "Пошукай в інтернеті сферу"
+    assert fix_command("Привіт") == "Привіт"
+    her = ("Ти хочеш створити щось на кшталт інтерактивного веб-об'єкта. Так, це дуже актуально, "
+           "і тобі варто дивитися в бік Three.js.")
+    assert foreign_speech("Так, дякую. Просто відкрий і покажи мені це.", her)   # ти, а не її луна
+    assert not foreign_speech("тобі варто дивитися в бік", her)
+    assert promises_more("Це круто. Хочеш, я знайду конкретні приклади коду?")
+    assert promises_more("Я можу пошукати для тебе конкретні назви програм.")
