@@ -356,3 +356,22 @@ _PROMISE = re.compile(r"\b(загляну|подивлюся|подивлюсь|
 def promises_more(answer: str) -> bool:
     """Хомі закінчує відповідь обіцянкою («зараз загляну», «дай мені трохи часу») — а більше нічого не буде."""
     return bool(_PROMISE.search(answer))
+
+
+_FOLDER = [
+    ("list_folder", re.compile(r"^(?:що|шо) (?:є |лежить |знаходиться )?(?:в|у) (?:папці|теці) (.+?)"
+                               r"(?: на (?:робочому столі|столі))?$")),
+    ("open_folder", re.compile(r"^(?:відкрий|покажи) (?:папку|теку) (.+?)(?: на (?:робочому столі|столі))?$")),
+]
+
+
+def folder_intent(transcript: str):
+    """«Що в папці Games?», «Відкрий папку Завантаження» → (інструмент, назва)."""
+    t = " ".join(re.sub(r"[^\w' ]", " ", transcript.lower()).split())
+    rest = split_wake(t)
+    t = (rest if rest else t).removesuffix(" будь ласка").strip()
+    for tool, rx in _FOLDER:
+        m = rx.match(t)
+        if m:
+            return tool, m.group(1)
+    return None

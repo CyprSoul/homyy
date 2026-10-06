@@ -27,6 +27,38 @@ CATEGORIES = {
     "Програми": {".exe", ".msi", ".msix", ".appx"},
 }
 SKIP_SUFFIXES = {".crdownload", ".part", ".tmp", ".partial", ".download"}
+def known_folders() -> list[Path]:
+    """Справжні папки користувача: Робочий стіл (свій і спільний), Документи, Зображення… —
+    навіть якщо OneDrive їх «переніс» кудись інакше."""
+    out: list[Path] = []
+    if sys.platform == "win32":
+        import ctypes
+        for csidl in (0x10, 0x19, 0x05, 0x27, 0x0E, 0x0D):   # стіл, спільний стіл, документи, фото, відео, музика
+            buf = ctypes.create_unicode_buffer(260)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, csidl, None, 0, buf) == 0 and buf.value:
+                out.append(Path(buf.value))
+    out += [HOME / d for d in SEARCH_DIRS]
+    seen, uniq = set(), []
+    for p in out:
+        if p.is_dir() and str(p).lower() not in seen:
+            seen.add(str(p).lower())
+            uniq.append(p)
+    return uniq
+
+
+def shortcut_target(lnk: Path) -> Path | None:
+    """Куди веде ярлик .lnk (щоб «папка Games» на столі, яка насправді ярлик на диск D:, теж знаходилась)."""
+    if sys.platform != "win32":
+        return None
+    cmd = f"(New-Object -ComObject WScript.Shell).CreateShortcut('{str(lnk).replace(chr(39), chr(39) * 2)}').TargetPath"
+    try:
+        out = _run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True,
+                   timeout=5, check=False).stdout.strip()
+    except Exception:
+        return None
+    return Path(out) if out else None
+
+
 SEARCH_DIRS = ["Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music",
                "OneDrive/Desktop", "OneDrive/Documents", "OneDrive/Pictures"]   # OneDrive часто «забирає» ці папки
 
@@ -100,6 +132,8 @@ class PcTools:
                    "Нічого не видаляє. Потребує підтвердження.", confirm),
             schema("find_file", "Знайти файл за частиною назви на Робочому столі, в Документах, Завантаженнях тощо.",
                    {"query": {"type": "string"}}, ["query"]),
+            schema("open_folder", "Відкрити папку в Провіднику: «відкрий папку Games», «відкрий Завантаження».",
+                   {"name": {"type": "string"}}, ["name"]),
             schema("list_folder", "Що лежить у папці: «що в папці Games на робочому столі», «що в Завантаженнях». "
                    "Папку шукає за назвою сама.",
                    {"name": {"type": "string", "description": "Назва папки, напр. Games, Завантаження"}}, ["name"]),
@@ -236,25 +270,41 @@ class PcTools:
         n = name.lower().strip().strip("«»\"'")
         if n in self._FOLDER_ALIASES:
             d = self._FOLDER_ALIASES[n]
+            for cand in known_folders():
+                if cand.name.lower() in (d.lower(), n):
+                    return cand
             for cand in (HOME / d, HOME / "OneDrive" / d):
                 if cand.is_dir():
                     return cand
-            return HOME / d
         p = Path(name)
         if p.is_absolute() and p.is_dir():
             return p
         from .screen import app_similarity
         best, score = None, 0.0
-        for d in SEARCH_DIRS:
-            base = HOME / d
-            for root, dirs, _ in os.walk(base):
-                if Path(root).relative_to(base).parts.__len__() >= 2:
+        for base in known_folders():
+            for root, dirs, files in os.walk(base):
+                if len(Path(root).relative_to(base).parts) >= 2:
                     dirs[:] = []                     # глибше двох рівнів не шукаємо — швидко
                 for x in dirs:
                     sc = app_similarity(name, x)
                     if sc > score:
                         best, score = Path(root) / x, sc
+                for f in files:                      # ярлик на папку («Games.lnk» → D:\Games)
+                    if f.lower().endswith(".lnk"):
+                        sc = app_similarity(name, f[:-4])
+                        if sc > score and sc >= 0.8:
+                            target = shortcut_target(Path(root) / f)
+                            if target and target.is_dir():
+                                best, score = target, sc
         return best if score >= 0.8 else None
+
+    def _t_open_folder(self, name: str) -> str:
+        folder = self._find_folder(name)
+        if not folder or not folder.is_dir():
+            return f"Не знайшла папки «{name}»."
+        if sys.platform == "win32":
+            os.startfile(folder)
+        return f"Відкрила папку {folder}."
 
     def _t_list_folder(self, name: str) -> str:
         folder = self._find_folder(name)

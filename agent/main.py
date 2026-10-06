@@ -19,7 +19,7 @@ from .config import AGENT_DIR, load_config, ollama_options
 from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
-                   wants_selection, window_intent, foreign_speech)
+                   wants_selection, window_intent, foreign_speech, folder_intent)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -321,6 +321,12 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 action, target = window_intent(text)
                 log("інструмент", f"window {{'action': '{action}', 'name': '{target}'}} (швидка команда)")
                 answer = brain.direct(text, "window", {"action": action, "name": target})
+            elif folder_intent(text):        # «що в папці Games», «відкрий папку …» — одразу
+                tool, target = folder_intent(text)
+                log("інструмент", f"{tool} {{'name': '{target}'}} (швидка команда)")
+                answer = brain.direct(text, tool, {"name": target})
+                if tool == "list_folder" and not answer.startswith("Не знайшла"):
+                    answer = brain.ask(f"{text}\n\n(Ось що в папці — коротко перекажи голосом:)\n{answer}")
             elif wants_selection(text):      # «переклади виділене» — беремо текст, а не знімок екрана
                 from .windows import selected_text
                 sel = selected_text()

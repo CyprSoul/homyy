@@ -153,3 +153,11 @@ def test_window_and_selection_intents():
     assert window_intent("Розкажи, як згорнути вікно в Windows швидко і без мишки") is None
     assert wants_selection("Я виділив текст, переклади")
     assert not wants_selection("Переклади: я втомився")
+
+
+def test_folder_intent():
+    from agent.text import folder_intent
+    assert folder_intent("Хомі, що в папці Games на робочому столі?") == ("list_folder", "games")
+    assert folder_intent("Що лежить у папці завантаження") == ("list_folder", "завантаження")
+    assert folder_intent("Відкрий папку Games") == ("open_folder", "games")
+    assert folder_intent("Що таке папка?") is None
