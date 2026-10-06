@@ -27,7 +27,7 @@ class FakeAudio:
 
 
 class FakeSTT:
-    def command(self, pcm):
+    def command(self, pcm, **kw):
         return "Стоп, стоп. А яка погода завтра?"
 
 
@@ -61,7 +61,7 @@ def test_double_talk_detector():
 
 
 class SilentSTT:
-    def command(self, pcm):
+    def command(self, pcm, **kw):
         return ""
 
 
@@ -90,7 +90,7 @@ def test_double_talk_with_headphones_first_frame_is_you():
 
 
 class TalkOverSTT:
-    def command(self, pcm):
+    def command(self, pcm, **kw):
         return "Типу, я хочу зробити класну сферу, яка ворушиться"
 
 
@@ -127,7 +127,7 @@ class TalkingAudio:
 
 
 class MoreSTT:
-    def command(self, pcm):
+    def command(self, pcm, **kw):
         return "щоб вона рухалась, коли хтось говорить"
 
 

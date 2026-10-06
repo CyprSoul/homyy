@@ -221,7 +221,10 @@ def speak_listening(cfg, speaker, audio, stt, text: str, asked: str = ""):
             seg = audio.listen(end_silence_ms=400, max_seconds=4, start_timeout_s=0.3, abort=stop_now)
             if not isinstance(seg, tuple) or stop_now():
                 continue
-            heard = stt.command(seg[0])
+            # тихе (луна з навушників, шум) і коротке — не ти; на такому розпізнавач вигадує фрази
+            if seg[1] < 0.6 or (hasattr(audio, "loud_enough") and not audio.loud_enough(seg[0])):
+                continue
+            heard = stt.command(seg[0], fallback=False)
             if not heard:
                 continue
             req = interrupt_request(heard, text)
@@ -280,7 +283,9 @@ def ask_while_listening(cfg, audio, stt, brain, text: str):
         seg = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=0.2,
                            abort=lambda: not worker.is_alive())
         if isinstance(seg, tuple):
-            extra = stt.command(seg[0])
+            if hasattr(audio, "loud_enough") and not audio.loud_enough(seg[0]):
+                continue
+            extra = stt.command(seg[0], fallback=False)
             if not extra or is_noise(extra):
                 continue                           # шум — хай Gemma спокійно договорює
             worker.join()

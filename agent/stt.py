@@ -143,8 +143,13 @@ class STT:
                                              initial_prompt="Хоооумммііі. Хомі.")
         return " ".join(s.text for s in segs).strip()
 
-    def command(self, pcm: np.ndarray) -> str:
+    def command(self, pcm: np.ndarray, fallback: bool = True) -> str:
+        """fallback=False — лише основний розпізнавач: не українською → "" (для «чи це ти?»
+        під час мови Хомі: Canary на шумі вигадує цілі фрази)."""
         with self.lock:                  # голос із мікрофона й голосові з Telegram — по черзі
+            if self.onnx is not None and not fallback:
+                text = str(self.onnx.recognize(self._f32(pcm), sample_rate=16000, **self.onnx_opts)).strip()
+                return text if looks_ukrainian(text) else ""
             if self.onnx is not None:
                 wav = self._f32(pcm)
                 text = str(self.onnx.recognize(wav, sample_rate=16000, **self.onnx_opts)).strip()

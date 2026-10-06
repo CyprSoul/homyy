@@ -64,3 +64,16 @@ def test_output_opens_only_for_speech(monkeypatch):
     assert not a.out_stream.active               # тиша — звук закритий, нічого не шипить
     a._ensure_output()
     assert a.out_stream.active
+
+
+def test_loud_enough_ignores_quiet_noise(monkeypatch):
+    monkeypatch.setattr(audio_mod.sd, "RawInputStream", FakeIn, raising=False)
+    monkeypatch.setattr(audio_mod.sd, "OutputStream", FakeOut, raising=False)
+    monkeypatch.setattr(audio_mod, "webrtcvad", type("V", (), {"Vad": lambda *a: None}))
+    a = audio_mod.Audio({})
+    a._levels.extend([0.004] * 300)                                   # тиха кімната
+    rng = np.random.default_rng(0)
+    quiet = (rng.normal(0, 0.006, 16000) * 32768).astype(np.int16)    # шум/луна
+    voice = (rng.normal(0, 0.08, 16000) * 32768).astype(np.int16)     # голос біля мікрофона
+    assert not a.loud_enough(quiet)
+    assert a.loud_enough(voice)

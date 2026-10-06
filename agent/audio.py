@@ -62,6 +62,7 @@ class Audio:
         self._dt = DoubleTalk()
         self._vad_cb = webrtcvad.Vad(2)
         self._ref_hist: collections.deque = collections.deque(maxlen=200)   # (час, гучність виходу)
+        self._levels: collections.deque = collections.deque(maxlen=330)     # гучність мікрофона ~10 с
         self.cut = threading.Event()         # «стоп» під час мови Хомі
         device = a.get("input_device") or None
         self.stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16",
@@ -137,6 +138,7 @@ class Audio:
         self.frames.put(raw)
         x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
         self.mic_level = float(np.sqrt(np.mean(x * x)) / 32768.0)
+        self._levels.append(self.mic_level)
         if self.barge_armed.is_set() and len(raw) == FRAME_SAMPLES * 2:
             now = time.time()
             ref = max((r for t, r in list(self._ref_hist) if now - t < 0.3), default=0.0)
@@ -148,6 +150,24 @@ class Audio:
                 self.barge_armed.clear()
                 self.barged.set()
                 self.stop_playback()
+
+    def noise_floor(self) -> float:
+        """Звичайний рівень тиші в кімнаті (вентилятори, ПК) за останні ~10 с."""
+        levels = sorted(self._levels)
+        return levels[len(levels) // 5] if levels else 0.0
+
+    def loud_enough(self, pcm, factor: float = 4.0, floor: float = 0.008) -> bool:
+        """Чи це справжній голос біля мікрофона, а не шум/луна, з якої розпізнавач «вигадує» слова."""
+        x = pcm.astype(np.float32) / 32768.0
+        if not len(x):
+            return False
+        # гучність мовної частини: 70-й перцентиль по кадрах 30 мс (паузи не тягнуть униз)
+        n = len(x) // FRAME_SAMPLES
+        if n == 0:
+            return False
+        frames = np.sqrt(np.mean(x[:n * FRAME_SAMPLES].reshape(n, FRAME_SAMPLES) ** 2, axis=1))
+        level = float(np.percentile(frames, 70))
+        return level > max(floor, factor * self.noise_floor())
 
     def arm_barge_in(self, on: bool):
         """Під час відповіді Хомі: стежити, чи не заговорив ти поверх неї."""
