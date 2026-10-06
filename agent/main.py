@@ -269,7 +269,7 @@ def exit_game_mode(cfg, stt):
     game_mode = False
     log("🎮", "Гру закрито — повертаюсь у повну силу.")
     set_low_priority(False)
-    if cfg["stt"].get("device", "auto") in ("auto", "cuda"):
+    if stt.parakeet is None and cfg["stt"].get("device", "auto") in ("auto", "cuda"):
         stt.load_gpu()
     _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
     ui.set_state("sleep")

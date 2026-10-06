@@ -1,4 +1,4 @@
-"""Розпізнавання мови через faster-whisper.
+"""Розпізнавання мови: faster-whisper або NVIDIA Parakeet (onnx-asr, процесор).
 
 Команди — на відеокарті, якщо вийде (≈0.3 с замість ≈3 с на процесорі), інакше на процесорі.
 Маленька модель для «Хомі» завжди на процесорі: їй вистачає, а відеопам'ять — для Gemma.
@@ -40,13 +40,39 @@ class STT:
         print(f"Завантажую модель для «Хомі»: {s['wake_model']} (процесор)…")
         self.wake_model = WhisperModel(s["wake_model"], device="cpu", compute_type="int8", cpu_threads=self.threads)
 
-        print(f"Завантажую модель для команд: {s['model']} (перший раз — кілька хвилин)…")
         self.cpu_model = None
         self.gpu_model = None
-        if s.get("device", "auto") in ("auto", "cuda"):
-            self.load_gpu()
-        if self.gpu_model is None:
-            self._ensure_cpu()
+        self.parakeet = None
+        if s.get("engine", "whisper") == "parakeet":
+            self.parakeet = self._load_parakeet()
+        if self.parakeet is None:
+            print(f"Завантажую модель для команд: {s['model']} (перший раз — кілька хвилин)…")
+            if s.get("device", "auto") in ("auto", "cuda"):
+                self.load_gpu()
+            if self.gpu_model is None:
+                self._ensure_cpu()
+
+    def _load_parakeet(self):
+        """NVIDIA Parakeet v3 на процесорі: не доповнює фразу до 30 с, як Whisper, тому
+        коротка команда розпізнається за десяті частки секунди й не займає відеокарту."""
+        try:
+            import onnx_asr
+            import onnxruntime as ort
+            print("Завантажую Parakeet для команд (перший раз ~700 МБ)…")
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = int(self.cfg.get("parakeet_threads", 8))
+            try:      # стиснена версія (int8) швидша; якщо її немає — повна
+                model = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", quantization="int8",
+                                            providers=["CPUExecutionProvider"], sess_options=opts)
+            except Exception:
+                model = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3",
+                                            providers=["CPUExecutionProvider"], sess_options=opts)
+            model.recognize(np.zeros(16000, dtype=np.float32), sample_rate=16000)   # прогрів
+            print("Розпізнавання команд — Parakeet на процесорі ⚡")
+            return model
+        except Exception as e:
+            print(f"Parakeet не завантажився ({str(e)[:160]}), беру Whisper.")
+            return None
 
     def _ensure_cpu(self):
         if self.cpu_model is None:
@@ -89,6 +115,8 @@ class STT:
 
     def command(self, pcm: np.ndarray) -> str:
         with self.lock:                  # голос із мікрофона й голосові з Telegram — по черзі
+            if self.parakeet is not None:
+                return str(self.parakeet.recognize(self._f32(pcm), sample_rate=16000)).strip()
             segs, _ = self.model.transcribe(self._f32(pcm), language=self.language, beam_size=self.beam_size,
                                             condition_on_previous_text=False, vad_filter=True)
             return " ".join(s.text for s in segs).strip()

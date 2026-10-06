@@ -5,6 +5,7 @@
                  інша модель (config.toml не змінюється):     ... -m agent.bench --gpu --model gemma4:12b
                  ще й тест розуму й характеру:                ... --quality
                  Gemma лише N шарів у відеокарті:             ... --gpu --num-gpu 24
+                 розпізнавання через NVIDIA Parakeet:         ... --parakeet
 
 Що робить: Марічка озвучує фразу → Whisper її розпізнає → Gemma відповідає → Марічка озвучує
 перше речення відповіді. Кожен етап — 3 рази, у кінці таблиця. Результат також у agent\\bench.txt.
@@ -72,7 +73,7 @@ def run_round(label, cfg, stt, brain, speaker):
         speaker._synth(first)
         t_tts = time.time() - t
         rows.append((t_stt, t_llm, t_tts))
-        say(f"  «{heard}» → «{answer[:70]}»")
+        say(f"  сказала «{q}» / почула «{heard}» → «{answer[:70]}»")
         say(f"     розпізнала {t_stt:.1f} с | думала {t_llm:.1f} с | голос {t_tts:.1f} с | "
             f"разом {t_stt + t_llm + t_tts:.1f} с")
         for st in brain.stats:
@@ -96,11 +97,14 @@ def main():
     if "--model" in sys.argv:                      # спробувати іншу модель, не чіпаючи config.toml
         o["model"] = sys.argv[sys.argv.index("--model") + 1]
         cfg["ollama"]["keep_alive"] = "5m"
+    if "--parakeet" in sys.argv:                   # розпізнавання через NVIDIA Parakeet (процесор)
+        s["engine"] = "parakeet"
     if "--num-gpu" in sys.argv:                    # менше шарів у відеокарті = місце для Whisper
         o["num_gpu"] = int(sys.argv[sys.argv.index("--num-gpu") + 1])
     say("Налаштування, з якими міряю:")
     say(f"  Gemma: {o['model']}, {ollama_options(cfg)}")
-    say(f"  Розпізнавання: {s['model']} на {s.get('device', 'auto')}, потоків {s.get('cpu_threads')}")
+    say(f"  Розпізнавання: " + ("Parakeet v3 (процесор)" if s.get("engine") == "parakeet" else
+                                 f"{s['model']} на {s.get('device', 'auto')}, потоків {s.get('cpu_threads')}"))
     say(f"  Голос: {cfg['tts']['voice']}")
 
     from .brain import Brain

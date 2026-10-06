@@ -8,3 +8,4 @@ PySide6-Essentials>=6.7
 pillow>=10
 onnxruntime>=1.17
 soundfile>=0.12
+onnx-asr[cpu,hub]>=0.12

@@ -14,6 +14,7 @@ keep_alive = "24h"       # тримати Gemma у відеокарті; «Па�
 num_thread = 8           # ядра процесора для частини Gemma, що не влізла у відеокарту (8 = лише швидкі P-ядра, мишка не лагає)
 
 [stt]
+engine = "whisper"             # "whisper" або "parakeet" (NVIDIA Parakeet v3 — у ~10 разів швидше на процесорі)
 wake_model = "small"           # маленька модель — лише щоб почути «Хомі»
 model = "large-v3-turbo"       # точна модель для команд
 device = "cpu"                # "cpu": на відеокарті Whisper витісняє Gemma в повільну пам'ять (відповідь 80+ с замість 1 с)
