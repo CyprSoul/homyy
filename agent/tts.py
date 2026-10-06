@@ -18,7 +18,10 @@ class Speaker:
     def __init__(self, cfg: dict, audio):
         self.cfg = cfg["tts"]
         self.audio = audio
-        self.pool = ThreadPoolExecutor(max_workers=3)
+        # Один синтез за раз: так перше речення готується першим і найшвидше (паралельні запити
+        # ділили процесор сервера голосу, і перше речення чекало 4–5 с), а наступне готується,
+        # поки звучить попереднє.
+        self.pool = ThreadPoolExecutor(max_workers=1)
         self.cache: dict[str, np.ndarray] = {}
         self.first_audio_at = None
 
@@ -60,13 +63,23 @@ class Speaker:
                                    nchannels=1, sample_rate=RATE)
         return np.frombuffer(decoded.samples, dtype=np.int16)
 
-    def say(self, text: str):
+    def say(self, text: str) -> bool:
+        """Говорить по реченню. False — якщо перебили («стоп»)."""
         sentences = split_sentences(clean_for_speech(text))
-        # Усі речення синтезуються паралельно, а грають по черзі — перше звучить майже одразу.
+        cut = getattr(self.audio, "cut", None)
+        if cut is not None:
+            cut.clear()
         futures = [self.pool.submit(self._synth, s) for s in sentences]
         for i, f in enumerate(futures):
+            if cut is not None and cut.is_set():
+                for rest in futures[i:]:
+                    rest.cancel()
+                return False
             samples = f.result()
             if i == 0:
                 self.first_audio_at = time.time()      # для журналу: коли Хомі реально заговорила
             self.audio.play(samples, RATE)
+        if cut is not None and cut.is_set():
+            return False
         self.audio.drain()
+        return True

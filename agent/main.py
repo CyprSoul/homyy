@@ -11,10 +11,12 @@ import threading
 import time
 import traceback
 
+import numpy as np
 import requests
 
 from .config import AGENT_DIR, load_config, ollama_options
-from .text import collapse, greeting, is_new_topic, is_noise, is_pause, is_stop, is_wake
+from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
+                   is_wake, unfinished)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 
@@ -150,6 +152,71 @@ def conversation(cfg, audio, stt, brain, speaker):
             threading.Thread(target=_ollama_keep, args=(cfg, 0), daemon=True).start()
 
 
+def _hear(cfg, audio, stt, timeout: float):
+    """Слухає фразу до кінця. Повертає (текст, коли договорив, скільки розпізнавала) або None.
+
+    Якщо фраза звучить незакінченою («я займаюся тим, що…») — чекає продовження й
+    розпізнає все разом: розпізнавання займає десяті частки секунди, тож це майже безкоштовно.
+    """
+    w = cfg["wake"]
+    silence = int(w.get("command_silence_ms", 700))
+    seg = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=timeout)
+    if seg is None:
+        return None
+    pcm, t_said = seg[0], time.time()
+    ui.set_state("hear")
+    t = time.time()
+    text = stt.command(pcm)
+    stt_s = time.time() - t
+    for _ in range(4):
+        wait = unfinished(text)
+        if not wait:
+            break
+        ui.set_state("listen")
+        more = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=wait)
+        if more is None:
+            break
+        pcm, t_said = np.concatenate([pcm, more[0]]), time.time()
+        ui.set_state("hear")
+        t = time.time()
+        text = stt.command(pcm)
+        stt_s = time.time() - t
+    return text, t_said, stt_s
+
+
+def speak_listening(cfg, speaker, audio, stt, text: str):
+    """Говорить і водночас слухає: «стоп», «Хомі, почекай», «стоп, а яка погода?» — замовкає.
+
+    Повертає None — договорила; "" — перебили; інакше — нове питання, сказане після «стоп».
+    """
+    if not cfg["wake"].get("barge_in", True):
+        speak(speaker, audio, text)
+        return None
+    done, result = threading.Event(), {}
+
+    def monitor():
+        while not done.is_set():
+            seg = audio.listen(end_silence_ms=400, max_seconds=4, start_timeout_s=0.3, abort=done.is_set)
+            if not isinstance(seg, tuple) or done.is_set():
+                continue
+            heard = stt.command(seg[0])
+            req = interrupt_request(heard, text)
+            if req is not None:
+                result["req"] = req
+                log("✋", f"перебив: «{heard}»")
+                audio.stop_playback()
+                return
+
+    t = threading.Thread(target=monitor, daemon=True)
+    t.start()
+    try:
+        speak(speaker, audio, text)
+    finally:
+        done.set()
+        t.join(timeout=3)
+    return result.get("req")
+
+
 def _conversation(cfg, audio, stt, brain, speaker):
     w = cfg["wake"]
     ui.set_state("speak")
@@ -158,22 +225,26 @@ def _conversation(cfg, audio, stt, brain, speaker):
     except requests.RequestException:
         audio.beep(up=True)
     timeout = float(w.get("follow_up_seconds", 8))
+    pending = None                          # питання, сказане одразу після «стоп»
+    announce = True
     while True:
-        ui.set_state("listen")
-        log("🎙️", f"Слухаю… (говори, у тебе {timeout:.0f} с)")
-        seg = audio.listen(end_silence_ms=int(w.get("command_silence_ms", 700)), max_seconds=25,
-                           start_timeout_s=timeout)
-        t_said = time.time()
-        if seg is None:
-            sleep(audio)
-            return
-        ui.set_state("hear")
-        t_stt = time.time()
-        text = stt.command(seg[0])
-        stt_s = time.time() - t_stt
-        if is_noise(text) or is_wake(text, 9.0, 0.0, 2):   # шум або просто повторене «Хомі»
-            continue
-        log("Ти", f"{text}   [розпізнала за {stt_s:.1f} с]")
+        if pending:
+            text, t_said, stt_s, pending = pending, time.time(), 0.0, None
+        else:
+            ui.set_state("listen")
+            if announce:
+                log("🎙️", f"Слухаю… (говори, у тебе {timeout:.0f} с)")
+            heard = _hear(cfg, audio, stt, timeout)
+            if heard is None:
+                sleep(audio)
+                return
+            text, t_said, stt_s = heard
+            if is_noise(text) or is_wake(text, 9.0, 0.0, 2):   # шум або просто повторене «Хомі»
+                announce = False
+                continue
+        announce = True
+        engine = f", {stt.last_engine}" if getattr(stt, "last_engine", "") else ""
+        log("Ти", f"{text}   [розпізнала за {stt_s:.1f} с{engine}]")
         if is_stop(text):
             sleep(audio)
             return
@@ -200,11 +271,14 @@ def _conversation(cfg, audio, stt, brain, speaker):
             log("⏱", st)
         speaker.first_audio_at = None
         t_voice = time.time()
-        speak(speaker, audio, answer)
+        req = speak_listening(cfg, speaker, audio, stt, answer)
         if speaker.first_audio_at:
             log("⏱", f"від кінця твоєї фрази до голосу {speaker.first_audio_at - t_said:.1f} с "
                      f"(розпізнала {stt_s:.1f}, думала {t_voice - t_llm:.1f}, "
                      f"голос {speaker.first_audio_at - t_voice:.1f})")
+        if req:
+            pending = req                   # «стоп, а яка погода?» — одразу відповідаємо на нове
+            continue
         audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
         timeout = float(w.get("follow_up_seconds", 8))
 

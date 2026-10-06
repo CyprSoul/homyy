@@ -34,6 +34,9 @@ class Audio:
         self._out_lock = threading.Lock()
         self._out_empty = threading.Event()
         self._out_empty.set()
+        self.cut = threading.Event()         # «стоп» під час мови Хомі
+        self._dither = (np.random.default_rng(0).standard_normal(OUT_RATE) * 1e-4).astype(np.float32)
+        self._dither_pos = 0
         try:
             self.out_stream = sd.OutputStream(samplerate=OUT_RATE, channels=1, dtype="float32",
                                               device=a.get("output_device") or None,
@@ -50,6 +53,19 @@ class Audio:
             self._out = self._out[n:]
             if not len(self._out):
                 self._out_empty.set()
+        # Ледь чутний шум (−80 дБ) замість «цифрової тиші»: монітори з HDMI-звуком і частина
+        # навушників вимикаються на абсолютній тиші й «прокидаються», з'їдаючи перші склади.
+        i = self._dither_pos
+        idx = (np.arange(frames) + i) % len(self._dither)
+        outdata[:, 0] += self._dither[idx]
+        self._dither_pos = (i + frames) % len(self._dither)
+
+    def stop_playback(self):
+        """Перебили: миттєво замовкнути й не грати решту речень."""
+        self.cut.set()
+        with self._out_lock:
+            self._out = np.zeros(0, dtype=np.float32)
+            self._out_empty.set()
 
     def _on_audio(self, data, *_):
         raw = bytes(data)
@@ -72,7 +88,7 @@ class Audio:
             self.frames.get_nowait()
 
     def listen(self, end_silence_ms: int, max_seconds: float, start_timeout_s: float | None = None,
-               interrupt=None):
+               interrupt=None, abort=None):
         """Чекає на мовлення й записує його до паузи.
 
         Повертає (int16-масив, тривалість мовлення в секундах), None — якщо за
@@ -90,6 +106,8 @@ class Audio:
 
         while True:
             frame = self.frames.get()
+            if abort is not None and abort():        # ззовні попросили припинити слухати
+                return None
             if len(frame) != FRAME_SAMPLES * 2:
                 continue
             is_speech = self.vad.is_speech(frame, RATE)
@@ -123,7 +141,7 @@ class Audio:
         # Після тиші звукова карта/навушники «прокидаються» і з'їдають перші ~200 мс —
         # тому перед першим звуком додаємо трохи тиші, і обрізається вже вона, а не слова.
         idle = time.time() - self._last_play_end
-        lead = 0.15 if idle > 2 else 0.03
+        lead = 0.25 if idle > 2 else 0.03
         samples = np.concatenate([np.zeros(int(rate * lead), dtype=samples.dtype), samples])
         x = samples.astype(np.float32)
         if samples.dtype == np.int16:

@@ -41,6 +41,16 @@ def fix_gender(answer: str) -> str:
     return answer
 
 
+def fix_vocative(answer: str, user: dict) -> str:
+    """Звертання так, як подобається господарю: «Ігорю», а не «Ігоре» (або навпаки)."""
+    name, voc = user.get("name", ""), user.get("name_vocative")
+    if not name or not voc:
+        return answer
+    for other in {name + "е", name + "ю"} - {voc}:
+        answer = re.sub(rf"\b{re.escape(other)}\b", voc, answer)
+    return answer
+
+
 def strip_unasked_time(question: str, answer: str) -> str:
     """Gemma любить додавати «Зараз 23:45.» у кінець — прибираємо, якщо про час не питали."""
     if any(w in question.lower() for w in _TIME_WORDS):
@@ -87,6 +97,9 @@ class Brain:
                   .replace("{{USER_NAME}}", user.get("name_genitive", user["name"]))
                   .replace("{{CURRENT_DATE}}", ukr_date(date.today())))
         prompt += "\n" + VOICE_RULES
+        voc = user.get("name_vocative")
+        if voc:
+            prompt += f"- Звертаючись до мене, кажи саме «{voc}».\n"
         memories = self._memories()
         if memories:
             prompt += "\nЩО ТИ ЗНАЄШ ПРО МЕНЕ (з пам'яті)\n" + "\n".join(f"- {m}" for m in memories)
@@ -142,6 +155,7 @@ class Brain:
             calls = msg.get("tool_calls") or []
             if not calls:
                 answer = fix_gender(strip_unasked_time(user_text, (msg.get("content") or "").strip()))
+                answer = fix_vocative(answer, self.cfg["user"])
                 self.history.append({"role": "assistant", "content": answer})
                 return answer
             messages.append({"role": "assistant", "content": msg.get("content", ""), "tool_calls": calls})

@@ -1,4 +1,4 @@
-"""Розпізнавання мови: faster-whisper або NVIDIA Parakeet (onnx-asr, процесор).
+"""Розпізнавання мови: NVIDIA Canary / Parakeet (onnx-asr, процесор) або faster-whisper.
 
 Команди — на відеокарті, якщо вийде (≈0.3 с замість ≈3 с на процесорі), інакше на процесорі.
 Маленька модель для «Хомі» завжди на процесорі: їй вистачає, а відеопам'ять — для Gemma.
@@ -11,6 +11,8 @@ import threading
 
 import numpy as np
 from faster_whisper import WhisperModel
+
+from .text import looks_ukrainian
 
 
 def _enable_cuda_dlls():
@@ -33,6 +35,8 @@ class STT:
     def __init__(self, cfg: dict):
         s = self.cfg = cfg["stt"]
         self.lock = threading.Lock()
+        self.fallbacks = 0
+        self.last_engine = ""
         self.threads = int(s.get("cpu_threads", 16))
         self.language = s.get("language", "uk")
         self.beam_size = int(s.get("beam_size", 1))
@@ -42,36 +46,53 @@ class STT:
 
         self.cpu_model = None
         self.gpu_model = None
-        self.parakeet = None
-        if s.get("engine", "whisper") == "parakeet":
-            self.parakeet = self._load_parakeet()
-        if self.parakeet is None:
+        self.onnx = None                 # Canary / Parakeet (onnx-asr, процесор)
+        self.onnx_opts: dict = {}
+        self.engine = s.get("engine", "whisper")
+        if self.engine in ("canary", "parakeet"):
+            self.onnx = self._load_onnx(self.engine)
+            if self.onnx is None and self.engine == "canary":     # не вийшло — пробуємо Parakeet
+                self.engine = "parakeet"
+                self.onnx = self._load_onnx("parakeet")
+        if self.onnx is None:
+            self.engine = "whisper"
             print(f"Завантажую модель для команд: {s['model']} (перший раз — кілька хвилин)…")
             if s.get("device", "auto") in ("auto", "cuda"):
                 self.load_gpu()
             if self.gpu_model is None:
                 self._ensure_cpu()
+        elif s.get("whisper_fallback", True):
+            # запасний Whisper на процесорі — якщо Parakeet/Canary видасть не українську
+            threading.Thread(target=self._ensure_cpu, daemon=True).start()
 
-    def _load_parakeet(self):
-        """NVIDIA Parakeet v3 на процесорі: не доповнює фразу до 30 с, як Whisper, тому
-        коротка команда розпізнається за десяті частки секунди й не займає відеокарту."""
+    @property
+    def parakeet(self):                  # сумісність: «чи працює швидке розпізнавання»
+        return self.onnx
+
+    _ONNX_MODELS = {"parakeet": "nemo-parakeet-tdt-0.6b-v3", "canary": "nemo-canary-1b-v2"}
+
+    def _load_onnx(self, engine: str):
+        """NVIDIA Canary / Parakeet на процесорі: не доповнюють фразу до 30 с, як Whisper, тому
+        коротка команда розпізнається за десяті частки секунди й не займає відеокарту.
+        Canary вміє примусово слухати українську (Parakeet вгадує мову сам і інколи помиляється)."""
+        name = self._ONNX_MODELS[engine]
         try:
             import onnx_asr
             import onnxruntime as ort
-            print("Завантажую Parakeet для команд (перший раз ~700 МБ)…")
+            print(f"Завантажую {engine} для команд (перший раз ~0.7–1 ГБ)…")
             opts = ort.SessionOptions()
-            opts.intra_op_num_threads = int(self.cfg.get("parakeet_threads", 8))
+            opts.intra_op_num_threads = int(self.cfg.get("onnx_threads", self.cfg.get("parakeet_threads", 8)))
             try:      # стиснена версія (int8) швидша; якщо її немає — повна
-                model = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", quantization="int8",
+                model = onnx_asr.load_model(name, quantization="int8",
                                             providers=["CPUExecutionProvider"], sess_options=opts)
             except Exception:
-                model = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3",
-                                            providers=["CPUExecutionProvider"], sess_options=opts)
-            model.recognize(np.zeros(16000, dtype=np.float32), sample_rate=16000)   # прогрів
-            print("Розпізнавання команд — Parakeet на процесорі ⚡")
+                model = onnx_asr.load_model(name, providers=["CPUExecutionProvider"], sess_options=opts)
+            self.onnx_opts = {"language": self.language} if engine == "canary" else {}
+            model.recognize(np.zeros(16000, dtype=np.float32), sample_rate=16000, **self.onnx_opts)  # прогрів
+            print(f"Розпізнавання команд — {engine} на процесорі ⚡")
             return model
         except Exception as e:
-            print(f"Parakeet не завантажився ({str(e)[:160]}), беру Whisper.")
+            print(f"{engine} не завантажився ({str(e)[:160]}).")
             return None
 
     def _ensure_cpu(self):
@@ -115,8 +136,13 @@ class STT:
 
     def command(self, pcm: np.ndarray) -> str:
         with self.lock:                  # голос із мікрофона й голосові з Telegram — по черзі
-            if self.parakeet is not None:
-                return str(self.parakeet.recognize(self._f32(pcm), sample_rate=16000)).strip()
+            if self.onnx is not None:
+                text = str(self.onnx.recognize(self._f32(pcm), sample_rate=16000, **self.onnx_opts)).strip()
+                if looks_ukrainian(text) or self.cpu_model is None:
+                    self.last_engine = self.engine
+                    return text
+                self.fallbacks += 1          # вийшло не українською — перепитуємо Whisper (≈3 с)
+            self.last_engine = "whisper"
             segs, _ = self.model.transcribe(self._f32(pcm), language=self.language, beam_size=self.beam_size,
                                             condition_on_previous_text=False, vad_filter=True)
             return " ".join(s.text for s in segs).strip()

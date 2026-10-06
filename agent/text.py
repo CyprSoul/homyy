@@ -157,3 +157,63 @@ def is_new_topic(transcript: str) -> bool:
     """«Нова тема», «змінимо тему», «почнемо спочатку» — забути поточну розмову (не пам'ять)."""
     t = collapse(transcript).replace("'", "")
     return len(t.split()) <= 6 and any(p.replace("'", "") in t for p in _NEW_TOPIC)
+
+
+_RU_ONLY = set("ыэъё")
+
+
+def looks_ukrainian(transcript: str) -> bool:
+    """Чи схоже розпізнане на українську: без суто російських букв і не латиницею.
+
+    Parakeet сам вгадує мову й на живому мікрофоні інколи пише російською чи англійською
+    («Ты тут…», «Uh none of mine») — тоді перерозпізнаємо Whisper'ом з мовою «uk».
+    """
+    letters = [c for c in transcript.lower() if c.isalpha()]
+    if not letters:
+        return True
+    if any(c in _RU_ONLY for c in letters):
+        return False
+    latin = sum("a" <= c <= "z" for c in letters)
+    return latin / len(letters) < 0.5
+
+
+_CONNECTORS = {"і", "й", "та", "а", "але", "що", "щоб", "бо", "тому", "або", "чи", "як", "коли", "якщо",
+               "в", "у", "на", "з", "із", "до", "про", "для", "від", "ну", "ем", "е", "ее", "це", "мені",
+               "мій", "моя", "моє", "мої", "ти", "я", "він", "вона", "ми", "ви", "вони", "дуже", "ще"}
+
+
+def unfinished(transcript: str) -> float:
+    """Скільки ще почекати (с), бо фраза звучить незакінченою; 0 — договорив.
+
+    «Я займаюся тим, що…», «а ще», «Розкажи про» — людина просто набирає повітря.
+    """
+    t = transcript.strip()
+    if not t:
+        return 0.0
+    words = collapse(t).replace("'", "").split()
+    if t[-1] in ",:;—-…" or t.endswith("..") or (words and words[-1] in _CONNECTORS):
+        return 1.5
+    if t[-1] not in ".?!":
+        return 0.6
+    return 0.0
+
+
+_INTERRUPT_WORDS = {"стоп", "стій", "стоять", "зупинись", "зупинися", "досить", "почекай", "чекай",
+                    "тихо", "замовкни", "перестань", "хомі", "хома", "хоми", "стривай"}
+
+
+def interrupt_request(heard: str, speaking: str) -> str | None:
+    """Чи просить людина перебити Хомі, поки та говорить.
+
+    Повертає те, що людина сказала після «стоп»-слова ("" — просто зупинитись), або None.
+    Слова, які Хомі зараз сама вимовляє (її голос із колонок), не рахуються.
+    """
+    words = collapse(heard).replace("'", "").split()
+    own = set(collapse(speaking).replace("'", "").split())
+    for i, w in enumerate(words):
+        if w in _INTERRUPT_WORDS and w not in own:
+            rest = words[i + 1:]
+            while rest and rest[0] in _INTERRUPT_WORDS:      # «стоп, стоп, Хомі, …»
+                rest = rest[1:]
+            return " ".join(rest) if len(rest) >= 2 else ""
+    return None

@@ -70,3 +70,28 @@ def test_new_topic():
     from agent.text import is_new_topic
     assert is_new_topic("Давай нова тема") and is_new_topic("Змінимо тему.") and is_new_topic("Забудь розмову")
     assert not is_new_topic("Розкажи про нову тему в моді цієї осені та що зараз носять у Європі")
+
+
+def test_looks_ukrainian_catches_wrong_language():
+    from agent.text import looks_ukrainian
+    assert not looks_ukrainian("Ты тут, приведя кто расправы.")
+    assert not looks_ukrainian("Uh none of mine no.")
+    assert looks_ukrainian("Яка привида, я кажу, як справи в тебе?")
+    assert looks_ukrainian("")
+
+
+def test_unfinished_phrase_waits_longer():
+    from agent.text import unfinished
+    assert unfinished("Я займаюся тим, що") == 1.5
+    assert unfinished("Розкажи про") == 1.5
+    assert unfinished("Котра година") == 0.6
+    assert unfinished("Привіт, як справи?") == 0.0
+
+
+def test_interrupt_request():
+    from agent.text import interrupt_request
+    assert interrupt_request("Стоп, стоп. А яка погода завтра?", "Сьогодні сонячно") == "а яка погода завтра"
+    assert interrupt_request("Стоп!", "Сьогодні сонячно") == ""
+    assert interrupt_request("Хомі, почекай", "Сьогодні сонячно") == ""
+    assert interrupt_request("сьогодні сонячно і тепло", "Сьогодні сонячно і тепло") is None
+    assert interrupt_request("Привіт, я Хомі", "Привіт, я Хомі") is None     # її власний голос

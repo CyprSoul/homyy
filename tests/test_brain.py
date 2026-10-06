@@ -51,3 +51,11 @@ def test_fix_gender():
     assert fix_gender("Була радий допомогти, Ігорю!") == "Була рада допомогти, Ігорю!"
     assert fix_gender("Я радий тебе чути") == "Я рада тебе чути"
     assert fix_gender("Тимофій радий") == "Тимофій радий"
+
+
+def test_fix_vocative():
+    from agent.brain import fix_vocative
+    user = {"name": "Ігор", "name_vocative": "Ігорю"}
+    assert fix_vocative("Привіт, Ігоре! Як ти?", user) == "Привіт, Ігорю! Як ти?"
+    assert fix_vocative("Ігорю, все добре", user) == "Ігорю, все добре"
+    assert fix_vocative("Привіт, Ігоре!", {"name": "Ігор"}) == "Привіт, Ігоре!"
