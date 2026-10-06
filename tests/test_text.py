@@ -77,6 +77,8 @@ def test_looks_ukrainian_catches_wrong_language():
     assert not looks_ukrainian("Ты тут, приведя кто расправы.")
     assert not looks_ukrainian("Uh none of mine no.")
     assert not looks_ukrainian("Привет.")
+    assert not looks_ukrainian("Расскажи про космос.")
+    assert looks_ukrainian("Розкажи про космос, я хочу послухати.")
     assert looks_ukrainian("Привіт, як твої справи? Я сьогодні вдома.")
     assert looks_ukrainian("Яка привида, я кажу, як справи в тебе?")
     assert looks_ukrainian("")
@@ -84,12 +86,13 @@ def test_looks_ukrainian_catches_wrong_language():
 
 def test_unfinished_phrase_waits_longer():
     from agent.text import unfinished
-    assert unfinished("Я займаюся тим, що") == 1.5
-    assert unfinished("Розкажи про") == 1.5
+    assert unfinished("Я займаюся тим, що") == 2.5
+    assert unfinished("Розкажи про") == 2.5
     assert unfinished("Котра година") == 0.6
     assert unfinished("Привіт, як справи?") == 0.0
-    assert unfinished("Я хочу.") == 1.5                  # розпізнавач поставив крапку на паузі
-    assert unfinished("Нагадай.") == 1.5
+    assert unfinished("Я хочу.") == 2.5                  # розпізнавач поставив крапку на паузі
+    assert unfinished("Нагадай.") == 2.5
+    assert unfinished("Я хочу м.") == 2.5
     assert unfinished("Привіт.") == 0.7
     assert unfinished("Яка завтра погода в Києві.") == 0.0
 

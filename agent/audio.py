@@ -73,7 +73,8 @@ class Audio:
         self._out_lock = threading.Lock()
         self._out_empty = threading.Event()
         self._out_empty.set()
-        level = 10 ** (float(a.get("keepalive_db", -80)) / 20)
+        db = a.get("keepalive_db", "off")      # з навушниками шум чути — за замовчуванням вимкнено
+        level = 0.0 if str(db).lower() == "off" else 10 ** (float(db) / 20)
         self._dither = (np.random.default_rng(0).standard_normal(OUT_RATE) * level).astype(np.float32)
         self._dither_pos = 0
         try:
