@@ -39,19 +39,20 @@ class Features:
         self.emb = ort.InferenceSession(str(MODELS_DIR / "embedding_model.onnx"), opts, providers=cpu)
 
     @staticmethod
-    def fit_length(pcm: np.ndarray) -> np.ndarray:
-        """Обрізає чи доповнює тишею до CLIP_SECONDS, тримаючи мовлення посередині."""
+    def fit_length(pcm: np.ndarray, align: str = "center") -> np.ndarray:
+        """Обрізає чи доповнює тишею до CLIP_SECONDS, тримаючи мовлення посередині
+        (align="start" — бере початок: «Хомі» на початку довгої фрази «Хомі, яка погода?»)."""
         n = int(RATE * CLIP_SECONDS)
         pcm = pcm.astype(np.int16)
         if len(pcm) >= n:
-            start = (len(pcm) - n) // 2
+            start = 0 if align == "start" else (len(pcm) - n) // 2
             return pcm[start:start + n]
         pad = n - len(pcm)
         return np.pad(pcm, (pad // 2, pad - pad // 2))
 
-    def vector(self, pcm: np.ndarray) -> np.ndarray:
+    def vector(self, pcm: np.ndarray, align: str = "center") -> np.ndarray:
         """Один вектор-«відбиток» фрагмента: середнє, максимум і розкид по кадрах."""
-        x = self.fit_length(pcm).astype(np.float32)[None, :]
+        x = self.fit_length(pcm, align).astype(np.float32)[None, :]
         spec = np.squeeze(self.mel.run(None, {"input": x})[0]) / 10 + 2          # (кадри, 32)
         windows = [spec[i:i + 76] for i in range(0, spec.shape[0] - 75, 8)]
         batch = np.array(windows, dtype=np.float32)[..., None]

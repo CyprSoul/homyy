@@ -30,6 +30,16 @@ def is_wake(transcript: str, duration_s: float, min_seconds: float, max_words: i
     return any(p.search(w) for w in words for p in _WAKE_PATTERNS)
 
 
+def split_wake(transcript: str) -> str | None:
+    """«Хомі, яка завтра погода?» → «яка завтра погода?»; без звертання на початку — None."""
+    tokens = transcript.strip().split()
+    for i, tok in enumerate(tokens[:2]):
+        w = collapse(tok)
+        if w and any(p.fullmatch(w) or p.match(w) for p in _WAKE_PATTERNS):
+            return " ".join(tokens[i + 1:]).lstrip(",.!?:;—- ").strip()
+    return None
+
+
 def extract_prompt(markdown: str) -> str:
     """Перший блок ``` … ``` з файлу характеру."""
     m = re.search(r"```\n(.*?)\n```", markdown, re.S)

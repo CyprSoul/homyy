@@ -16,7 +16,7 @@ import requests
 
 from .config import AGENT_DIR, load_config, ollama_options
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
-                   is_wake, unfinished)
+                   is_wake, split_wake, unfinished)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 
@@ -144,30 +144,40 @@ def speak(speaker, audio, text: str):
         audio.beep(up=True)
 
 
-def conversation(cfg, audio, stt, brain, speaker):
+def conversation(cfg, audio, stt, brain, speaker, first=None):
     try:
-        _conversation(cfg, audio, stt, brain, speaker)
+        _conversation(cfg, audio, stt, brain, speaker, first)
     finally:
         if game_mode:                    # після розмови в грі знову звільняємо відеокарту
             threading.Thread(target=_ollama_keep, args=(cfg, 0), daemon=True).start()
 
 
-def _hear(cfg, audio, stt, timeout: float):
+def _hear(cfg, audio, stt, timeout: float, first=None):
     """Слухає фразу до кінця. Повертає (текст, коли договорив, скільки розпізнавала) або None.
 
     Якщо фраза звучить незакінченою («я займаюся тим, що…») — чекає продовження й
     розпізнає все разом: розпізнавання займає десяті частки секунди, тож це майже безкоштовно.
+    first = (звук, текст) — фраза вже почута разом із «Хомі» («Хомі, я хочу…»): лише дослухаємо.
     """
     w = cfg["wake"]
     silence = int(w.get("command_silence_ms", 700))
-    seg = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=timeout)
-    if seg is None:
-        return None
-    pcm, t_said = seg[0], time.time()
-    ui.set_state("hear")
-    t = time.time()
-    text = stt.command(pcm)
-    stt_s = time.time() - t
+
+    def recognize(pcm):
+        text = stt.command(pcm)
+        return split_wake(text) or text if first is not None else text
+
+    if first is not None:
+        pcm, t_said = first[0], time.time()
+        text, stt_s = first[1], 0.0
+    else:
+        seg = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=timeout)
+        if seg is None:
+            return None
+        pcm, t_said = seg[0], time.time()
+        ui.set_state("hear")
+        t = time.time()
+        text = recognize(pcm)
+        stt_s = time.time() - t
     for _ in range(4):
         wait = unfinished(text)
         if not wait:
@@ -180,7 +190,7 @@ def _hear(cfg, audio, stt, timeout: float):
         pcm, t_said = np.concatenate([pcm, more[0]]), time.time()
         ui.set_state("hear")
         t = time.time()
-        text = stt.command(pcm)
+        text = recognize(pcm)
         stt_s = time.time() - t
     return text, t_said, stt_s
 
@@ -233,13 +243,14 @@ def speak_listening(cfg, speaker, audio, stt, text: str):
     return result.get("req")
 
 
-def _conversation(cfg, audio, stt, brain, speaker):
+def _conversation(cfg, audio, stt, brain, speaker, first=None):
     w = cfg["wake"]
-    ui.set_state("speak")
-    try:
-        speaker.say_cached("Так?")          # чітко чути: Хомі прокинулась і слухає
-    except requests.RequestException:
-        audio.beep(up=True)
+    if first is None:
+        ui.set_state("speak")
+        try:
+            speaker.say_cached("Так?")      # чітко чути: Хомі прокинулась і слухає
+        except requests.RequestException:
+            audio.beep(up=True)
     timeout = float(w.get("follow_up_seconds", 8))
     pending = None                          # питання, сказане одразу після «стоп»
     announce = True
@@ -248,9 +259,10 @@ def _conversation(cfg, audio, stt, brain, speaker):
             text, t_said, stt_s, pending = pending, time.time(), 0.0, None
         else:
             ui.set_state("listen")
-            if announce:
+            if announce and first is None:
                 log("🎙️", f"Слухаю… (говори, у тебе {timeout:.0f} с)")
-            heard = _hear(cfg, audio, stt, timeout)
+            heard = _hear(cfg, audio, stt, timeout, first)
+            first = None
             if heard is None:
                 sleep(audio)
                 return
@@ -452,7 +464,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
                 log("почула", "Ctrl+Alt+H")
                 conversation(cfg, audio, stt, brain, speaker)
             continue
-        seg = audio.listen(end_silence_ms=end_ms, max_seconds=4,
+        seg = audio.listen(end_silence_ms=end_ms, max_seconds=8,
                            interrupt=lambda: wake_click.is_set() or game_now.is_set() != game_mode)
         if paused.is_set():                       # паузу ввімкнули з меню, поки слухала
             continue
@@ -466,8 +478,11 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
         if speech_s < min_s * 0.8:          # явно коротке — навіть не розпізнаємо
             continue
         t0 = time.time()
+        long_phrase = len(pcm) > 1.6 * 16000          # «Хомі, яка погода?» — звертання на початку
         if detector:
             score = detector.score(features.vector(pcm))
+            if long_phrase:
+                score = max(score, detector.score(features.vector(pcm, align="start")))
             if score < detector.threshold * 0.6:      # зовсім не схоже на твоє «Хооміі» — далі не дивимось
                 continue
             if score >= sure:
@@ -477,7 +492,8 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
                 heard = stt.wake(pcm)
                 # обидві перевірки: звучить як твоє «Хооміі» І текст схожий на «Хомі»
                 # або: майже дотягує до порогу, але Whisper чітко чує протяжне «Хомі» — теж ти
-                woke = ((score >= detector.threshold and is_wake(heard, speech_s, 0.0, max_words))
+                woke = ((score >= detector.threshold and
+                         (is_wake(heard, speech_s, 0.0, max_words) or split_wake(heard) is not None))
                         or (score >= detector.threshold * 0.8 and is_wake(heard, speech_s, min_s, max_words)))
             log("почула" if woke else "не те",
                 f"«{heard or 'Хооміі'}» ({speech_s:.1f} с, схожість {score:.2f}, вирішила за {time.time() - t0:.2f} с)")
@@ -489,7 +505,14 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
             elif "м" in collapse(heard):
                 log("не те", f"«{heard}» ({speech_s:.1f} с)")   # підказка для налаштування min_seconds
         if woke:
-            conversation(cfg, audio, stt, brain, speaker)
+            first = None
+            if long_phrase and cfg["wake"].get("one_breath", True):
+                # «Хомі, яка завтра погода?» — питання вже сказане, не перепитуємо «Так?»
+                rest = split_wake(stt.command(pcm))
+                if rest and len(rest.split()) >= 2:
+                    first = (pcm, rest)
+                    log("⚡", f"одним подихом: «{rest}»")
+            conversation(cfg, audio, stt, brain, speaker, first)
 
 
 _instance_lock = None

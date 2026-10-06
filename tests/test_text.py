@@ -104,3 +104,13 @@ def test_interrupt_request():
     assert interrupt_request("Хомі, почекай", "Сьогодні сонячно") == ""
     assert interrupt_request("сьогодні сонячно і тепло", "Сьогодні сонячно і тепло") is None
     assert interrupt_request("Привіт, я Хомі", "Привіт, я Хомі") is None     # її власний голос
+
+
+def test_split_wake():
+    from agent.text import split_wake
+    assert split_wake("Хомі, яка завтра погода?") == "яка завтра погода?"
+    assert split_wake("Хооміі. Увімкни музику") == "Увімкни музику"
+    assert split_wake("Ну Хомі, привіт") == "привіт"
+    assert split_wake("Хомі.") == ""
+    assert split_wake("Яка погода?") is None
+    assert split_wake("Я вдома") is None
