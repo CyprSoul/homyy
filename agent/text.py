@@ -148,15 +148,23 @@ def is_pause(transcript: str) -> bool:
     return "не слухай" in t or "не підслуховуй" in t
 
 
-_YES = {"так", "ага", "угу", "давай", "звісно", "звичайно", "підтверджую", "можна", "впевнений", "точно", "yes"}
+_YES = {"так", "ага", "угу", "давай", "звісно", "звичайно", "підтверджую", "можна", "впевнений", "точно", "yes",
+        "да", "ок", "окей", "добре", "роби", "вперед", "закривай", "вимикай", "yeah", "ok", "okay", "sure"}
+_NO = {"ні", "не", "стоп", "скасуй", "відміна", "відмінa", "передумав", "no", "нєт", "нет"}
 
 
 def is_yes(transcript: str) -> bool:
     """Коротка згода: «так», «так, давай», «ага». Заперечення («ні», «не треба») — ні."""
     words = collapse(transcript).replace("'", "").split()
-    if not words or len(words) > 5 or any(w in ("ні", "не", "стоп", "скасуй") for w in words):
+    if not words or len(words) > 6 or any(w in _NO for w in words):
         return False
     return any(w in _YES for w in words)
+
+
+def is_no(transcript: str) -> bool:
+    """Коротка відмова: «ні», «не треба», «скасуй»."""
+    words = collapse(transcript).replace("'", "").split()
+    return 0 < len(words) <= 6 and any(w in _NO for w in words)
 
 
 _NEW_TOPIC = ("нова тема", "нову тему", "змінимо тему", "змінімо тему", "почнемо спочатку", "забудь розмову",

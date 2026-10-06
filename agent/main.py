@@ -16,7 +16,7 @@ import requests
 
 from .config import AGENT_DIR, load_config, ollama_options
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
-                   is_wake, media_intent, split_wake, unfinished)
+                   is_no, is_wake, is_yes, media_intent, split_wake, unfinished)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 
@@ -293,7 +293,15 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
         t_llm = time.time()
         try:
             intent = media_intent(text)
-            if intent:                      # «постав на паузу» — одразу, без Gemma
+            awaiting, brain.tools.awaiting = brain.tools.awaiting, None
+            if awaiting and is_yes(text):   # «Закрити Discord?» → «так» — виконуємо одразу, без Gemma
+                brain.tools.last_user_text = text
+                log("інструмент", f"{awaiting[0]} {awaiting[1]} (підтверджено)")
+                answer = brain.direct(text, awaiting[0], {**awaiting[1], "confirmed": True})
+            elif awaiting and is_no(text):
+                brain.tools.pending = None
+                answer = brain.direct_reply(text, "Добре, не роблю.")
+            elif intent:                      # «постав на паузу» — одразу, без Gemma
                 log("інструмент", f"media {{'action': '{intent}'}} (швидка команда)")
                 answer = brain.direct(text, "media", {"action": intent, "times": 3 if "volume" in intent else 1})
             else:

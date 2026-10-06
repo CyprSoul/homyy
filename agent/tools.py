@@ -75,6 +75,7 @@ def _schema(name, description, properties=None, required=None):
 class Tools(PcTools):
     def __init__(self, cfg: dict):
         self.cfg = cfg
+        self.awaiting: tuple | None = None
         self.apps = {k.lower(): v for k, v in cfg.get("apps", {}).items()}
 
     # ---- опис для моделі -------------------------------------------------
@@ -143,9 +144,12 @@ class Tools(PcTools):
         if fn is None:
             return f"Невідомий інструмент: {name}"
         try:
-            return fn(**(args or {}))
+            result = fn(**(args or {}))
         except Exception as e:  # модель має дізнатися про помилку, а не «впасти»
             return f"Помилка інструмента {name}: {e}"
+        # чекає на «так» — наступне «так» голосова Хомі виконає сама, без Gemma
+        self.awaiting = (name, dict(args or {})) if str(result).startswith("ПОТРІБНЕ ПІДТВЕРДЖЕННЯ") else None
+        return result
 
     def _t_current_datetime(self) -> str:
         now = datetime.now()

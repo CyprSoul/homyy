@@ -147,6 +147,10 @@ class Brain:
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
         return answer
 
+    def direct_reply(self, user_text: str, answer: str) -> str:
+        self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
+        return answer
+
     def ask(self, user_text: str, on_tool=None) -> str:
         if time.time() - self.last_turn > HISTORY_IDLE_RESET_S:
             self.history = []

@@ -97,7 +97,8 @@ class PcTools:
     # ---- підтвердження ---------------------------------------------------
     def _needs_yes(self, name: str, key, confirmed: bool, describe: str) -> str | None:
         """None — можна виконувати; інакше текст для моделі «спершу перепитай»."""
-        if confirmed and self.pending == (name, key) and is_yes(self.last_user_text):
+        # Код, а не модель, перевіряє, що ТИ сказав «так» (Gemma могла перепитати й сама, без інструмента)
+        if confirmed and self.pending in (None, (name, key)) and is_yes(self.last_user_text):
             self.pending = None
             return None
         self.pending = (name, key)
@@ -186,7 +187,12 @@ class PcTools:
         if ask:
             return ask
         for p in procs:
-            subprocess.run(["taskkill", "/IM", p], check=False, capture_output=True)
+            subprocess.run(["taskkill", "/IM", p, "/T"], check=False, capture_output=True)
+        time.sleep(2)
+        # Discord, Steam, Telegram на «закрити» лише ховаються в трей — тоді закриваємо примусово
+        left = [p for p in self._find_processes(name) if p in procs] if sys.platform == "win32" else []
+        for p in left:
+            subprocess.run(["taskkill", "/IM", p, "/T", "/F"], check=False, capture_output=True)
         return f"Закрила: {', '.join(procs) or name}."
 
     def _t_take_screenshot(self) -> str:

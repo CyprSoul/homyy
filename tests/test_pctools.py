@@ -49,3 +49,27 @@ def test_reminder_fires():
     assert "Таймер поставлено" in t.call("set_reminder", {"minutes": 0.001, "text": "випити води"})
     time.sleep(0.5)
     assert said == ["Нагадую: випити води."]
+
+
+def test_yes_after_question_runs_tool(monkeypatch):
+    from agent.text import is_no, is_yes
+    from agent.tools import Tools
+    t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
+    monkeypatch.setattr(t, "_find_processes", lambda name: ["Discord.exe"])
+    monkeypatch.setattr("agent.pctools.subprocess.run", lambda *a, **k: None)
+    monkeypatch.setattr("agent.pctools.time.sleep", lambda s: None)
+    t.last_user_text = "Хомі, закрий дискорд"
+    assert t.call("close_app", {"name": "discord"}).startswith("ПОТРІБНЕ ПІДТВЕРДЖЕННЯ")
+    assert t.awaiting == ("close_app", {"name": "discord"})
+    assert is_yes("Хо мені да?") and is_yes("Так, закривай") and not is_yes("Ні, не треба")
+    assert is_no("ні, не треба")
+    t.last_user_text = "Хо мені да?"
+    assert t.call("close_app", {"name": "discord", "confirmed": True}).startswith("Закрила")
+    assert t.awaiting is None
+
+
+def test_confirmed_without_yes_is_refused():
+    from agent.tools import Tools
+    t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
+    t.last_user_text = "Закрий дискорд"                 # модель сама поставила confirmed=true
+    assert t._needs_yes("close_app", "discord", True, "Закрити") is not None
