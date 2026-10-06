@@ -272,7 +272,11 @@ def ask_while_listening(cfg, audio, stt, brain, text: str):
 
     def work():
         try:
-            box["answer"] = brain.ask(text, on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
+            def on_tool(n, a):
+                log("інструмент", f"{n} {a}")
+                if n in ("web_search", "search_on_site", "find_file", "look_at_screen"):
+                    ui.set_state("search")       # сфера показує, що Хомі шукає
+            box["answer"] = brain.ask(text, on_tool=on_tool)
         except Exception as e:      # noqa: BLE001 — передаємо далі в головний потік
             box["error"] = e
 
