@@ -6,6 +6,7 @@
 тільки якщо попередній крок був саме цим запитом, а твоя наступна фраза — згода.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,9 @@ class PcTools:
             schema("cancel_shutdown", "Скасувати заплановане вимкнення комп'ютера."),
             schema("sleep_pc", "Перевести комп'ютер у сон. Потребує підтвердження.", confirm),
             schema("lock_pc", "Заблокувати комп'ютер (екран входу)."),
+            schema("click_on_screen", "Натиснути мишкою на напис/кнопку на екрані: «натисни на igorko2018», "
+                   "«клікни Грати», «натисни Прийняти». Шукає текст на екрані сам.",
+                   {"text": {"type": "string", "description": "Напис на кнопці чи посиланні"}, **confirm}, ["text"]),
             schema("set_reminder", "Таймер/нагадування: через N хвилин Хомі скаже про це вголос.",
                    {"minutes": {"type": "number"}, "text": {"type": "string", "description": "Про що нагадати"}},
                    ["minutes"]),
@@ -101,6 +105,27 @@ class PcTools:
                 "Якщо він скаже «так», виклич цей самий інструмент ще раз з confirmed=true.")
 
     # ---- дії -------------------------------------------------------------
+    _RISKY_CLICK = re.compile(r"(видал|delete|remove|купи|buy|придба|оплат|pay|purchase|надісл|send|"
+                              r"підтверд|confirm|format|формат|uninstall|скасувати підписку)", re.IGNORECASE)
+
+    def _t_click_on_screen(self, text: str, confirmed: bool = False) -> str:
+        from . import screen
+        if not screen.available():
+            return "Не можу натискати на екрані: немає модуля розпізнавання тексту Windows (winrt)."
+        words = screen.screen_words()
+        if not words:
+            return "Не бачу на екрані жодного напису."
+        match = screen.best_match(text, words)
+        if not match or match[2] < 0.75:
+            seen = ", ".join(w for w, _ in words[:25])
+            return f"Не знайшла на екрані «{text}». Видно, зокрема: {seen}."
+        label, (x, y), _ = match
+        if self._RISKY_CLICK.search(label) or self._RISKY_CLICK.search(text):
+            ask = self._needs_yes("click_on_screen", label.lower(), confirmed, f"Точно натиснути «{label}»")
+            if ask:
+                return ask
+        screen.click(x, y)
+        return f"Натиснула «{label}»."
     def _t_shutdown_timer(self, minutes: int, confirmed: bool = False) -> str:
         minutes = max(0, min(int(minutes), 24 * 60))
         when = "зараз" if minutes == 0 else f"через {minutes} хв"
