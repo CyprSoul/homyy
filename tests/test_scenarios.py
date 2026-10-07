@@ -127,7 +127,11 @@ def run(steps, answers, monkeypatch, tmp_path, teach_rule="Коли просят
             return _Resp({"message": {"content": teach_rule}})
         q = last.split("\n\n(Службова довідка")[0]
         asked.append(q)
+        if any("Службове" in m.get("content", "") for m in msgs[-1:]) or msgs[-1].get("role") == "tool":
+            q = "__after__"                         # друга спроба (після інструмента чи «зроби зараз»)
         reply = next((a for key, a in answers if key.lower() in q.lower()), "Добре.")
+        if isinstance(reply, list):
+            reply = reply.pop(0) if len(reply) > 1 else reply[0]
         return _Stream(reply) if stream else _Resp({"message": {"content": reply}, "done_reason": "stop"})
     monkeypatch.setattr("agent.brain.requests.post", fake_post)
     monkeypatch.setattr(main, "log", lambda *a: None)
@@ -151,6 +155,10 @@ class _Resp:
 
 class _Stream:
     def __init__(self, text):
+        self.calls = None
+        if isinstance(text, dict):                 # {"tool": name, "args": {...}} — Gemma кличе інструмент
+            self.chunks, self.calls = [], [{"function": {"name": text["tool"], "arguments": text["args"]}}]
+            return
         words = text.split(" ")
         self.chunks = [w + " " for w in words]
 
@@ -168,6 +176,8 @@ class _Stream:
         for c in self.chunks:
             threading.Event().wait(0.01)
             yield json.dumps({"message": {"content": c}, "done": False}).encode()
+        if self.calls:
+            yield json.dumps({"message": {"content": "", "tool_calls": self.calls}, "done": False}).encode()
         yield json.dumps({"message": {"content": ""}, "done": True, "done_reason": "stop"}).encode()
 
 
@@ -230,3 +240,49 @@ def test_language_guard_and_russisms(monkeypatch, tmp_path):
 def test_noise_like_thanks_ends_quietly(monkeypatch, tmp_path, phrase):
     said, asked, _ = run([("hear", phrase)], [], monkeypatch, tmp_path)
     assert asked == [] or phrase == "Угу"
+
+
+def test_empty_promise_is_not_spoken_and_gets_done(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr("agent.tools.Tools.call", lambda self, n, a: calls.append(n) or "Завтра +18, сонячно.")
+    said, asked, _ = run([("hear", "Яка завтра погода?")],
+                         [("погода", "Хвилинку, зараз подивлюся."),
+                          ("__after__", [{"tool": "web_search", "args": {"query": "погода"}},
+                                         "Завтра до 18 градусів і сонячно."])], monkeypatch, tmp_path)
+    assert "Хвилинку, зараз подивлюся." not in said             # порожню обіцянку не озвучила
+    assert calls == ["web_search"]
+    assert "Завтра до 18 градусів і сонячно." in said
+
+
+def test_russian_answer_is_retold_in_ukrainian(monkeypatch, tmp_path):
+    said, asked, _ = run([("hear", "Як справи?")],
+                         [("справи", "Привет, у меня всё хорошо, а как у тебя дела?"),
+                          ("__after__", "Привіт, у мене все добре. А в тебе як?")], monkeypatch, tmp_path)
+    assert all("меня" not in x for x in said)
+    assert "Привіт, у мене все добре." in said
+
+
+def test_yes_confirms_dangerous_action_without_gemma(monkeypatch, tmp_path):
+    done = []
+
+    def call(self, n, a):
+        if n == "close_app" and not a.get("confirmed"):
+            self.awaiting = (n, dict(a))
+            return "ПОТРІБНЕ ПІДТВЕРДЖЕННЯ. Нічого ще не зроблено. Коротко спитай: «Закрити Discord?»"
+        done.append((n, a))
+        self.awaiting = None
+        return "Закрила: Discord.exe."
+    monkeypatch.setattr("agent.tools.Tools.call", call)
+    said, asked, _ = run([("hear", "Закрий, будь ласка, дискорд."), ("hear", "Да.")],
+                         [("дискорд", {"tool": "close_app", "args": {"name": "discord"}}),
+                          ("__after__", "Закрити Discord?")], monkeypatch, tmp_path)
+    assert done == [("close_app", {"name": "discord", "confirmed": True})]
+    assert said[-1] == "Закрила: Discord.exe."
+    assert not any(q.startswith("Да") for q in asked)               # «Да» — без Gemma
+
+
+def test_media_reflex_without_gemma(monkeypatch, tmp_path):
+    used = []
+    monkeypatch.setattr("agent.tools.Tools.call", lambda self, n, a: used.append((n, a["action"])) or "Поставила на паузу.")
+    said, asked, _ = run([("hear", "Постав на паузу.")], [], monkeypatch, tmp_path)
+    assert used == [("media", "pause")] and asked == [] and "Поставила на паузу." in said
