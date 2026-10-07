@@ -117,3 +117,8 @@ url = ""                  # українська Вікіпедія офлайн
 # allow = ["read_text_file", "list_directory", "search_files"]
 [mcp]
 start_timeout = 40
+
+[diary]
+# Щоденник розмов: після розмови Gemma коротко підсумовує її (agent\diary.jsonl),
+# Хомі пам'ятає останні розмови й знаходить старіші («про що ми говорили про…»).
+enabled = true

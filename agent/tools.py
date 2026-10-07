@@ -134,6 +134,9 @@ class Tools(PcTools):
             _schema("web_search", "Пошук в інтернеті: свіжі новини, погода, ціни, факти. Повертає 5 результатів "
                     "і повний текст найкращої сторінки.",
                     {"query": {"type": "string"}}, ["query"]),
+            _schema("recall", "Згадати, про що ми говорили раніше (щоденник розмов): «що я казав про тренування», "
+                    "«про що ми говорили вчора».",
+                    {"query": {"type": "string", "description": "Тема чи ключові слова"}}, ["query"]),
             _schema("wiki", "Українська Вікіпедія офлайн (без інтернету): енциклопедичні факти — історія, наука, "
                     "люди, місця, поняття. Для таких питань — спершу сюди; для свіжих новин, цін і погоди — web_search.",
                     {"query": {"type": "string", "description": "Що шукати (назва статті чи тема)"}}, ["query"]),
@@ -237,6 +240,11 @@ class Tools(PcTools):
         except Exception:
             return ""
         return " ".join(text.split())[:limit]
+
+    def _t_recall(self, query: str) -> str:
+        from .diary import Diary
+        found = Diary().search(query)
+        return ("Зі щоденника розмов:\n" + "\n".join(found)) if found else f"У щоденнику нічого про «{query}»."
 
     def _t_wiki(self, query: str) -> str:
         from .kiwix import Kiwix

@@ -12,3 +12,4 @@ agent/stt_compare.txt
 agent/skills.json
 agent/lessons.json
 agent/greetings.json
+agent/diary.jsonl

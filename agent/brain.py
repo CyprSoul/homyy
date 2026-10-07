@@ -133,8 +133,10 @@ class Brain:
             self.cases = extract_prompt((REPO_DIR / "prompts" / "dialog-cases.md").read_text(encoding="utf-8"))
         except OSError:
             self.cases = ""
+        from .diary import Diary
         from .lessons import LessonBook
         self.lessons = LessonBook()
+        self.diary = Diary()
         self.last_exchange: tuple[str, str] | None = None
         self.history: list[dict] = []
         self.last_turn = 0.0
@@ -173,6 +175,7 @@ class Brain:
         if self.cases:
             prompt += "\n" + self.cases + "\n"
         prompt += self.lessons.prompt_block()
+        prompt += self.diary.prompt_block()
         voc = user.get("name_vocative")
         if voc:
             prompt += f"- Звертаючись до мене, кажи саме «{voc}».\n"
@@ -268,6 +271,27 @@ class Brain:
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
         self.last_exchange = (user_text, answer)
         return answer
+
+    def summarize(self, history: list[dict]) -> str | None:
+        """Підсумок розмови для щоденника (у фоні, коли розмова скінчилась)."""
+        from .diary import SUMMARY_PROMPT, dialog_text
+        if sum(1 for m in history if m.get("role") == "user") < 2:
+            return None                       # «пауза», «відкрий стім» — не розмова
+        o = self.cfg["ollama"]
+        try:
+            r = requests.post(f"{o['url']}/api/chat", timeout=90, json={
+                "model": o["model"], "stream": False, "think": False, "keep_alive": o.get("keep_alive", "24h"),
+                "options": ollama_options(self.cfg, temperature=0.2, num_predict=140),
+                "messages": [{"role": "user", "content": SUMMARY_PROMPT.format(dialog=dialog_text(history))}]})
+            r.raise_for_status()
+            text = (r.json()["message"].get("content") or "").strip()
+        except (requests.RequestException, ValueError, KeyError):
+            return None
+        if not text or text.upper().startswith("NONE"):
+            return None
+        text = fix_russisms(text)
+        self.diary.add(text)
+        return text
 
     def learn(self, request: str, answer: str, reaction: str) -> str | None:
         """Сформулювати правило з твого зауваження й записати в уроки. Повертає правило або None."""

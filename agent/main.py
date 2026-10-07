@@ -154,9 +154,18 @@ def speak(speaker, audio, text, clear_cut: bool = True):
 
 
 def conversation(cfg, audio, stt, brain, speaker, first=None):
+    start = len(brain.history)
     try:
         _conversation(cfg, audio, stt, brain, speaker, first)
     finally:
+        # Розмова скінчилась — підсумок у щоденник (у фоні, один короткий запит до Gemma)
+        talk = list(brain.history[start:]) if len(brain.history) >= start else list(brain.history)
+        if cfg.get("diary", {}).get("enabled", True) and talk:
+            def _diary(talk=talk):
+                note = brain.summarize(talk)
+                if note:
+                    log("📔", f"щоденник: {note}")
+            threading.Thread(target=_diary, daemon=True).start()
         if game_mode:                    # після розмови в грі знову звільняємо відеокарту
             threading.Thread(target=_ollama_keep, args=(cfg, 0), daemon=True).start()
 
