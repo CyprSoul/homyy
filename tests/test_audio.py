@@ -77,3 +77,33 @@ def test_loud_enough_ignores_quiet_noise(monkeypatch):
     voice = (rng.normal(0, 0.08, 16000) * 32768).astype(np.int16)     # голос біля мікрофона
     assert not a.loud_enough(quiet)
     assert a.loud_enough(voice)
+
+
+class FakeVad:
+    def is_speech(self, frame, rate):
+        return any(frame[:4])
+
+
+def _frames(a, pattern):
+    """pattern: послідовність (мовлення?, кадрів по 30 мс)."""
+    for speech, n in pattern:
+        for _ in range(n):
+            a.frames.put((b"\x10\x10" if speech else b"\x00\x00") * audio_mod.FRAME_SAMPLES)
+
+
+def test_listen_waits_while_smart_turn_says_not_done(monkeypatch):
+    monkeypatch.setattr(audio_mod.sd, "RawInputStream", FakeIn, raising=False)
+    monkeypatch.setattr(audio_mod.sd, "OutputStream", FakeOut, raising=False)
+    monkeypatch.setattr(audio_mod, "webrtcvad", type("V", (), {"Vad": lambda *a: FakeVad()}))
+    a = audio_mod.Audio({})
+    answers = iter([False, True])          # перша пауза — «ще думає», друга — «договорив»
+    calls = []
+
+    def turn(pcm):
+        calls.append(len(pcm))
+        return next(answers)
+    # «Я хочу…» (1 с) · пауза 0.6 с · «…щоб ти нагадала» (1 с) · тиша
+    _frames(a, [(True, 33), (False, 20), (True, 33), (False, 40)])
+    pcm, speech_s = a.listen(end_silence_ms=300, max_seconds=30, turn=turn, max_silence_ms=2500)
+    assert len(calls) == 2                               # не обірвала на першій паузі
+    assert len(pcm) >= (33 + 20 + 33) * audio_mod.FRAME_SAMPLES

@@ -190,13 +190,17 @@ class Audio:
             self.frames.get_nowait()
 
     def listen(self, end_silence_ms: int, max_seconds: float, start_timeout_s: float | None = None,
-               interrupt=None, abort=None):
+               interrupt=None, abort=None, turn=None, max_silence_ms: int = 2500):
         """Чекає на мовлення й записує його до паузи.
 
         Повертає (int16-масив, тривалість мовлення в секундах), None — якщо за
         start_timeout_s ніхто нічого не сказав, або "interrupt" — якщо до початку
         мовлення interrupt() повернула True (клік по сфері, початок/кінець гри).
+
+        turn(pcm) -> bool — «людина договорила?» (Smart Turn). Тоді після короткої тиші
+        end_silence_ms питаємо модель: так — кінець; ні — слухаємо далі, аж до max_silence_ms тиші.
         """
+        self.last_turn = None                              # (ймовірність, після скількох мс тиші) — для журналу
         pre_roll = collections.deque(maxlen=10)            # 300 мс до початку мовлення
         start_frames_needed = 3                            # 90 мс мовлення = старт
         end_frames_needed = end_silence_ms // FRAME_MS
@@ -205,6 +209,8 @@ class Audio:
         recording: list[bytes] = []
         silence = 0
         speech_frames_total = 0
+        checked = False                                    # уже питали модель у цій паузі
+        max_frames = max_silence_ms // FRAME_MS
 
         while True:
             frame = self.frames.get()
@@ -232,10 +238,21 @@ class Audio:
             if is_speech:
                 speech_frames_total += 1 + silence    # короткі паузи всередині слова теж рахуємо
                 silence = 0
+                checked = False
             else:
                 silence += 1
             too_long = len(recording) * FRAME_MS / 1000 >= max_seconds
-            if silence >= end_frames_needed or too_long:
+            done = too_long
+            if turn is None:
+                done = done or silence >= end_frames_needed
+            elif silence >= max_frames:
+                done = True                                # довго мовчить — точно договорив
+            elif silence >= end_frames_needed and not checked:
+                checked = True
+                pcm = np.frombuffer(b"".join(recording), dtype=np.int16)
+                done = bool(turn(pcm))
+                self.last_turn = (getattr(turn, "last", None), silence * FRAME_MS)
+            if done:
                 pcm = np.frombuffer(b"".join(recording), dtype=np.int16)
                 return pcm, speech_frames_total * FRAME_MS / 1000
 

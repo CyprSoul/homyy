@@ -172,6 +172,8 @@ def _hear(cfg, audio, stt, timeout: float, first=None):
         text = stt.command(pcm)
         return split_wake(text) or text if first is not None else text
 
+    if TURN.get("model") is not None:
+        return _hear_smart(cfg, audio, timeout, first, recognize)
     if first is not None:
         pcm, t_said = first[0], time.time()
         text, stt_s = first[1], 0.0
@@ -199,6 +201,48 @@ def _hear(cfg, audio, stt, timeout: float, first=None):
         text = recognize(pcm)
         stt_s = time.time() - t
     return text, t_said, stt_s
+
+
+TURN: dict = {}            # Smart Turn — модель «договорив чи ні» (вантажиться в voice_loop)
+
+
+class TurnJudge:
+    """Обгортка Smart Turn для audio.listen: True — людина договорила."""
+
+    def __init__(self, model, threshold: float):
+        self.model, self.threshold, self.last = model, threshold, None
+
+    def __call__(self, pcm) -> bool:
+        self.last = self.model.probability(pcm)
+        return self.last >= self.threshold
+
+
+def _hear_smart(cfg, audio, timeout, first, recognize):
+    """Слухає, поки Smart Turn не скаже «договорив» (або поки не мине довга тиша)."""
+    w = cfg["wake"]
+    judge = TurnJudge(TURN["model"], float(w.get("turn_threshold", 0.5)))
+    short = int(w.get("turn_silence_ms", 300))
+    longest = int(w.get("turn_max_silence_ms", 2500))
+    if first is not None:
+        pcm = first[0]
+        if not judge(pcm):                       # «Хомі, я хочу…» — ще не все
+            more = audio.listen(end_silence_ms=short, max_seconds=25, start_timeout_s=longest / 1000,
+                                turn=judge, max_silence_ms=longest)
+            if more is not None:
+                pcm = np.concatenate([pcm, more[0]])
+    else:
+        seg = audio.listen(end_silence_ms=short, max_seconds=30, start_timeout_s=timeout,
+                           turn=judge, max_silence_ms=longest)
+        if seg is None:
+            return None
+        pcm = seg[0]
+    t_said = time.time()
+    if audio.last_turn and audio.last_turn[0] is not None:
+        log("⏸", f"договорив? {audio.last_turn[0]:.2f} (після {audio.last_turn[1]} мс тиші)")
+    ui.set_state("hear")
+    t = time.time()
+    text = recognize(pcm)
+    return text, t_said, time.time() - t
 
 
 def speak_listening(cfg, speaker, audio, stt, text: str, asked: str = ""):
@@ -517,6 +561,13 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     from .tts import Speaker
 
     stt = STT(cfg)
+    if cfg["wake"].get("smart_turn", True):
+        try:
+            from .turn.smart_turn import SmartTurn
+            TURN["model"] = SmartTurn()
+            log("✓", "Smart Turn: Хомі чує, коли ти договорив, за інтонацією")
+        except Exception as e:
+            log("!", f"Smart Turn не завантажився ({e}) — кінець фрази за тишею")
     # Gemma вантажиться у фоні (~20 с): Хомі вже слухає й вітається, а питання просто трохи зачекає.
     log("…", "завантажую Gemma у відеокарту у фоні")
     voice = {}                           # тут з'явиться голос, коли він буде готовий
