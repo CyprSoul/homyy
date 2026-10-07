@@ -106,7 +106,52 @@ class PageBuilder:
         self.stage = "пишу"
         self.rounds = int(cfg.get("pages", {}).get("review_rounds", 2))
 
+    @property
+    def remote(self) -> bool:
+        return bool(self.cfg.get("coder", {}).get("gemini_key"))
+
     def _write(self, prompt: str) -> str | None:
+        """Код пише Gemini (якщо є ключ — сильніший програміст), інакше або при збої — своя Gemma."""
+        if self.remote:
+            try:
+                html = self._write_gemini(prompt)
+                if html:
+                    return html
+                self.log("🛠", "Gemini повернув неповний код — пишу сама")
+            except Exception as e:  # noqa: BLE001 — немає інтернету, ліміт, змінилась модель…
+                self.log("🛠", f"Gemini недоступний ({str(e)[:150]}) — пишу сама")
+        return self._write_local(prompt)
+
+    def _write_gemini(self, prompt: str) -> str | None:
+        """Google Gemini API (офіційний, безкоштовний ліміт). Потоком — щоб бачити прогрес."""
+        import json
+        c = self.cfg["coder"]
+        model = c.get("model", "gemini-flash-latest")
+        parts: list[str] = []
+        last = 0.0
+        with requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse",
+                headers={"x-goog-api-key": c["gemini_key"]}, timeout=600, stream=True,
+                json={"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                      "generationConfig": {"temperature": 0.4}}) as r:
+            if r.status_code == 429:
+                raise RuntimeError("вичерпано безкоштовний ліміт на сьогодні")
+            r.raise_for_status()
+            for line in r.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data:"):
+                    continue
+                chunk = json.loads(line[5:])
+                for cand in chunk.get("candidates", [])[:1]:
+                    for part in cand.get("content", {}).get("parts", []):
+                        if not part.get("thought"):
+                            parts.append(part.get("text", ""))
+                self.lines = "".join(parts).count("\n")
+                if time.time() - last > 3:
+                    last = time.time()
+                    self._progress()
+        return extract_html("".join(parts))
+
+    def _write_local(self, prompt: str) -> str | None:
         """Пише потоком: так видно прогрес (рядки, час) — у журналі, під сферою й на питання «як там?»."""
         import json
         o = self.cfg["ollama"]
@@ -134,7 +179,7 @@ class PageBuilder:
         if not self.busy:
             return "Зараз нічого не пишу."
         m, sec = divmod(int(time.time() - self.started), 60)
-        what = "пишу код" if self.stage == "пишу" else f"{self.stage} (шукаю й виправляю помилки)"
+        what = ("Gemini пише код" if self.remote else "пишу код") if self.stage == "пишу" else f"{self.stage} (шукаю й виправляю помилки)"
         return f"Сторінка «{self.busy}»: {what}, минуло {m}:{sec:02d}, зараз {self.lines} рядків."
 
     def _progress(self, final: str | None = None):
@@ -145,7 +190,8 @@ class PageBuilder:
             text = f"🛠 {self.busy} · {self.stage} · {self.lines} рядків · {m}:{sec:02d}"
         if self.on_task:
             try:
-                short = text if final is not None else f"🛠 {self.stage} {m}:{sec:02d} · {self.lines} р."
+                stage = "Gemini пише" if self.remote and self.stage == "пишу" else self.stage
+                short = text if final is not None else f"🛠 {stage} {m}:{sec:02d} · {self.lines} р."
                 self.on_task(short)
             except Exception:  # noqa: BLE001
                 pass
@@ -164,11 +210,13 @@ class PageBuilder:
     def review(self, html: str, request: str, rounds: int) -> str:
         """Режим «якісно»: перечитує свій код, шукає помилки й виправляє (до rounds разів)."""
         for i in range(1, rounds + 1):
-            if len(html) > REVIEW_MAX_CHARS:
+            if len(html) > REVIEW_MAX_CHARS and not self.remote:
                 self.log("🛠", "сторінка завелика для перевірки цілком — лишаю як є")
                 break
-            self.stage, self.lines = f"перевіряю {i}/{rounds}", 0
             errors = js_errors(html)
+            if self.remote and not errors:
+                break                     # Gemini пише чисто — свою Gemma ставити йому в рецензенти немає сенсу
+            self.stage, self.lines = f"перевіряю {i}/{rounds}", 0
             note = f"\nNode.js знайшов синтаксичну помилку в скрипті — її треба виправити:\n{errors}\n" if errors else ""
             fixed = self._write(REVIEW_PROMPT.format(request=request, html=html, errors=note))
             if fixed is None:
@@ -186,7 +234,8 @@ class PageBuilder:
             return f"Я ще пишу сторінку «{self.busy}». Скажу, щойно закінчу."
         self.busy, self.started, self.lines, self._logged = title, time.time(), 0, time.time()
         self.stage = "пишу"
-        self.log("🛠", f"почала писати «{title}»" + (f" (з перевіркою ×{rounds})" if rounds else ""))
+        who = "Gemini пише" if self.remote else "пишу сама"
+        self.log("🛠", f"«{title}»: {who}" + (f", перевірка ×{rounds}" if rounds and not self.remote else ""))
 
         def run():
             t = time.time()
@@ -210,6 +259,9 @@ class PageBuilder:
                 self.busy = None
                 self._progress(final="")
         threading.Thread(target=run, daemon=True).start()
+        if self.remote:
+            return (f"Передала завдання «{title}» програмісту Gemini. Це займе приблизно хвилину; "
+                    "коли файл буде готовий — сама скажу й відкрию.")
         how = "хвилин 5–10, бо ще перевірю й виправлю помилки" if rounds else "хвилину-дві"
         return (f"Почала писати сторінку «{title}». Це займе {how}; поки пишу, відповідатиму повільніше. "
                 "Коли буде готово — сама скажу й відкрию.")

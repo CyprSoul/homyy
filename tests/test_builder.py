@@ -68,3 +68,34 @@ def test_review_fixes_then_stops_on_ok(monkeypatch):
     out = b.review("<!DOCTYPE html><html>чернетка</html>", "трекер", rounds=3)
     assert out == "<!DOCTYPE html><html>виправлено</html>"
     assert len(seen) == 2 and "чернетка" in seen[0] and "виправлено" in seen[1]
+
+
+def test_gemini_writes_and_falls_back(monkeypatch):
+    import json
+    cfg = {"ollama": {"url": "http://x", "model": "m"}, "coder": {"gemini_key": "k"}}
+    b = builder.PageBuilder(cfg, log=lambda *a: None)
+    b.busy, b.started = "сайт", 0
+    sent = {}
+    events = ["data: " + json.dumps({"candidates": [{"content": {"parts": [{"text": t}]}}]})
+              for t in ("<!DOCTYPE html>\n<html>", "Gemini</html>")]
+
+    class R:
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def raise_for_status(self): pass
+        def iter_lines(self, decode_unicode=False): return iter(events)
+
+    def post(url, **k):
+        sent["url"], sent["key"] = url, k["headers"]["x-goog-api-key"]
+        return R()
+    monkeypatch.setattr(builder.requests, "post", post)
+    assert b._write("x") == "<!DOCTYPE html>\n<html>Gemini</html>"
+    assert "generativelanguage.googleapis.com" in sent["url"] and sent["key"] == "k"
+
+    def broken(url, **k):
+        raise builder.requests.ConnectionError("немає інтернету")
+    monkeypatch.setattr(builder.requests, "post", broken)
+    monkeypatch.setattr(b, "_write_local", lambda prompt: "<!DOCTYPE html><html>Gemma</html>")
+    assert "Gemma" in b._write("x")                                  # без інтернету — пише сама
+    assert "Gemini" in b.status()
