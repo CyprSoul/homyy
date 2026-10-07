@@ -41,7 +41,9 @@
     paused: { mode: "idle",       color: [90, 94, 110],   speed: 0.3, caption: "Пауза · не слухаю" },
     game:   { mode: "idle",       color: [148, 163, 184], speed: 0.3, caption: "" },
   };
-  const orb = new ThinkingOrbs.ThinkingOrb("#orb", { state: "idle", size: 128, theme: "dark", speed: 0.7 });
+  // Швидкість задаємо ОДИН раз: бібліотека рахує час як «секунди від старту × швидкість»,
+  // тож будь-яка зміна швидкості на ходу стрибком прокручує сферу (звідси «шалене» кружляння).
+  const orb = new ThinkingOrbs.ThinkingOrb("#orb", { state: "idle", size: 128, theme: "dark", speed: 0.8 });
   const wrap = document.getElementById("wrap"), caption = document.getElementById("caption");
   let current = STATES.sleep, level = 0, shown = [139, 92, 246];
 
@@ -55,11 +57,10 @@
   };
   window.setLevel = function (x) { level = Math.max(0, Math.min(1, x)); };
 
-  // плавний перехід кольору й «дихання» в такт голосу
+  // плавний перехід кольору й легке «дихання» в такт голосу (лише масштаб, без зміни швидкості)
   (function tick() {
     for (let i = 0; i < 3; i++) shown[i] += (current.color[i] - shown[i]) * 0.08;
     window.__tintColor = shown;
-    orb.setSpeed(current.speed * (1 + level * 1.8));
     wrap.style.transform = `translateX(-50%) scale(${1 + level * 0.05})`;
     level *= 0.9;
     requestAnimationFrame(tick);
