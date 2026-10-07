@@ -1,0 +1,12 @@
+# Українська Вікіпедія офлайн (Kiwix). Встановлення: scripts\install-kiwix.ps1
+# ZIM-файли лежать у C:\homyy\kiwix (змінна KIWIX_DIR), сервер — http://127.0.0.1:8090
+services:
+  kiwix:
+    image: ghcr.io/kiwix/kiwix-serve:latest
+    container_name: kiwix
+    restart: always
+    command: "*.zim"
+    volumes:
+      - ${KIWIX_DIR:-C:/homyy/kiwix}:/data
+    ports:
+      - "8090:8080"

@@ -117,6 +117,8 @@ class Tools(PcTools):
             off |= {"money_balance", "money_spending"}
         if not (c.get("gmail", {}).get("address") and c.get("gmail", {}).get("app_password")):
             off.add("mail_unread")
+        if not c.get("kiwix", {}).get("url"):
+            off.add("wiki")
         own = [s for s in self.base_schemas() + self.pc_schemas(_schema) if s["function"]["name"] not in off]
         return own + (MCP_HUB.schemas() if MCP_HUB else [])       # + інструменти MCP-конекторів
 
@@ -132,6 +134,9 @@ class Tools(PcTools):
             _schema("web_search", "Пошук в інтернеті: свіжі новини, погода, ціни, факти. Повертає 5 результатів "
                     "і повний текст найкращої сторінки.",
                     {"query": {"type": "string"}}, ["query"]),
+            _schema("wiki", "Українська Вікіпедія офлайн (без інтернету): енциклопедичні факти — історія, наука, "
+                    "люди, місця, поняття. Для таких питань — спершу сюди; для свіжих новин, цін і погоди — web_search.",
+                    {"query": {"type": "string", "description": "Що шукати (назва статті чи тема)"}}, ["query"]),
             _schema("read_page", "Прочитати повний текст сторінки за адресою (з результатів пошуку), щоб відповісти "
                     "точно, а не з короткого уривка.",
                     {"url": {"type": "string"}}, ["url"]),
@@ -232,6 +237,17 @@ class Tools(PcTools):
         except Exception:
             return ""
         return " ".join(text.split())[:limit]
+
+    def _t_wiki(self, query: str) -> str:
+        from .kiwix import Kiwix
+        kw = Kiwix(self.cfg["kiwix"]["url"])
+        found = kw.search(query)
+        if not found:
+            return f"У Вікіпедії офлайн нічого про «{query}» не знайшла."
+        text = kw.article(found[0][1])
+        others = ", ".join(t for t, _ in found[1:5])
+        return (f"Вікіпедія (офлайн): «{found[0][0]}»\n{text or '(текст статті не прочитався)'}"
+                + (f"\n\nСхожі статті: {others}" if others else ""))
 
     def _t_read_page(self, url: str) -> str:
         text = self._page_text(url)

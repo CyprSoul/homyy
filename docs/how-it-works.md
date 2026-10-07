@@ -60,6 +60,8 @@ Gemma 4 26b через Ollama (характер + «як говорять люд
 | **Ollama** | `127.0.0.1:11434` | Windows-програма (трей) | Gemma 4 26b — «мозок» |
 | **Open WebUI** | `localhost:3000` | Docker (`scripts\run-open-webui.ps1`) | чат у браузері, **пам'ять про тебе** (API) |
 | **SearXNG** | `localhost:8888` | Docker (`config\searxng\`) | пошук в інтернеті без ключів |
+| **Kiwix** (Вікіпедія офлайн) | `127.0.0.1:8090` | Docker (`config\kiwix\`, `scripts\install-kiwix.ps1`) | енциклопедичні факти без інтернету |
+| **MCP-конектори** | — | програми з `[mcp.servers.*]` | «плагіни» з інструментами — [`docs/connectors.md`](connectors.md) |
 | **StyleTTS2 (Марічка)** | `localhost:8003` | Docker (`config\tts-uk\docker-compose.yml`) | основний голос |
 | edge-tts (Поліна) | `localhost:5050` | Docker | запасний голос, якщо 8003 лежить |
 | ComfyUI | `127.0.0.1:8188` | ComfyUI Desktop | картинки (Z-Image-Turbo) |
@@ -213,5 +215,5 @@ Gemma лишається в пам'яті між перезапусками Хо
 ## 11. Що далі (ідеї, не зроблено)
 
 - Вчитися з твоїх дій мишкою (не лише з голосових прохань).
-- Офлайн-довідник (Вікіпедія українською через Kiwix) для фактів без інтернету.
+- MCP-конектори «за адресою» (HTTP/SSE), Home Assistant, n8n.
 - Інтеграції: Telegram-бот, Monobank, Gmail, Obsidian — код є, потрібні ключі.
