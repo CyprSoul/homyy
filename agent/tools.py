@@ -135,9 +135,12 @@ class Tools(PcTools):
                     "і повний текст найкращої сторінки.",
                     {"query": {"type": "string"}}, ["query"]),
             _schema("make_page", "Написати сайт чи сторінку-програму (один HTML-файл у браузері, можна з кількома "
-                    "розділами/вкладками): сайт-візитка, трекер тренувань, калькулятор, таймер, список справ, гра тощо. Пишеш у фоні 1–2 хв, потім сама кажеш «готово» й відкриваєш.",
+                    "розділами/вкладками): сайт-візитка, трекер тренувань, калькулятор, таймер, список справ, гра тощо. Пишеш і "
+                    "перевіряєш у фоні 5–10 хв, потім сама кажеш «готово» й відкриваєш.",
                     {"name": {"type": "string", "description": "Коротка назва, напр. «тренування»"},
-                     "request": {"type": "string", "description": "Детально, що має бути на сторінці й як працювати"}},
+                     "request": {"type": "string", "description": "Детально, що має бути на сторінці й як працювати"},
+                     "quick": {"type": "boolean", "description": "true — лише якщо просять «швидко», «чернетку» "
+                               "(без перевірки помилок)"}},
                     ["name", "request"]),
             _schema("edit_page", "Змінити вже написану сторінку («зроби кнопки більшими», «додай графік»).",
                     {"request": {"type": "string", "description": "Що змінити"},
@@ -263,8 +266,8 @@ class Tools(PcTools):
         if self.on_reminder:
             self.on_reminder(text)
 
-    def _t_make_page(self, name: str, request: str) -> str:
-        return self._builder().make(name, request, self._page_done)
+    def _t_make_page(self, name: str, request: str, quick: bool = False) -> str:
+        return self._builder().make(name, request, self._page_done, quick=bool(quick))
 
     def _t_edit_page(self, request: str, name: str = "") -> str:
         return self._builder().edit(request, name, self._page_done)

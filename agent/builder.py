@@ -35,6 +35,40 @@ EDIT_PROMPT = """Ти досвідчена веб-розробниця. Ось �
 від <!DOCTYPE html> до </html>, без пояснень."""
 
 
+REVIEW_PROMPT = """Ти прискіплива рецензентка коду. Ось сторінка, яку написали за завданням: {request}
+
+{html}
+{errors}
+Уважно перевір: чи все із завдання зроблено; чи немає помилок у JavaScript (неоголошені змінні, опечатки в
+назвах, обробники на елементи, яких немає); чи працюють усі кнопки й форми; чи зберігаються дані в localStorage;
+чи гарно й акуратно виглядає. Якщо все справді добре — відповідай рівно одним словом: OK
+Інакше — виправ і відповідай ЛИШЕ повним виправленим кодом файлу від <!DOCTYPE html> до </html>, без пояснень."""
+
+REVIEW_MAX_CHARS = 26000      # більшу сторінку Gemma не перечитає разом із відповіддю (num_ctx)
+
+
+def js_errors(html: str) -> str:
+    """Синтаксичні помилки JavaScript через Node (якщо встановлений) — їх Gemma сама не бачить."""
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+    node = shutil.which("node")
+    scripts = [m for m in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S | re.I) if m.strip()]
+    if not node or not scripts:
+        return ""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write("\n;\n".join(scripts))
+    try:
+        r = subprocess.run([node, "--check", f.name], capture_output=True, text=True, timeout=20,
+                           creationflags=0x08000000 if sys.platform == "win32" else 0)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    finally:
+        Path(f.name).unlink(missing_ok=True)
+    return "" if r.returncode == 0 else (r.stderr or r.stdout).replace(f.name, "script.js")[-1500:]
+
+
 def pages_dir() -> Path:
     d = Path.home() / "Documents" / "Хомі" / "сторінки"
     d.mkdir(parents=True, exist_ok=True)
@@ -69,6 +103,8 @@ class PageBuilder:
         self.started = 0.0
         self.lines = 0
         self._logged = 0.0
+        self.stage = "пишу"
+        self.rounds = int(cfg.get("pages", {}).get("review_rounds", 2))
 
     def _write(self, prompt: str) -> str | None:
         """Пише потоком: так видно прогрес (рядки, час) — у журналі, під сферою й на питання «як там?»."""
@@ -98,17 +134,18 @@ class PageBuilder:
         if not self.busy:
             return "Зараз нічого не пишу."
         m, sec = divmod(int(time.time() - self.started), 60)
-        return f"Пишу «{self.busy}»: {m}:{sec:02d}, вже {self.lines} рядків коду."
+        what = "пишу код" if self.stage == "пишу" else f"{self.stage} (шукаю й виправляю помилки)"
+        return f"Сторінка «{self.busy}»: {what}, минуло {m}:{sec:02d}, зараз {self.lines} рядків."
 
     def _progress(self, final: str | None = None):
         if final is not None:
             text = final
         else:
             m, sec = divmod(int(time.time() - self.started), 60)
-            text = f"🛠 {self.busy} · {self.lines} рядків · {m}:{sec:02d}"
+            text = f"🛠 {self.busy} · {self.stage} · {self.lines} рядків · {m}:{sec:02d}"
         if self.on_task:
             try:
-                short = text if final is not None else f"🛠 пишу {m}:{sec:02d} · {self.lines} р."
+                short = text if final is not None else f"🛠 {self.stage} {m}:{sec:02d} · {self.lines} р."
                 self.on_task(short)
             except Exception:  # noqa: BLE001
                 pass
@@ -124,11 +161,32 @@ class PageBuilder:
         exact = [p for p in pages if p.stem == want]
         return exact[0] if exact else next((p for p in pages if want in p.stem or p.stem in want), None)
 
-    def start(self, title: str, prompt: str, path: Path, done) -> str:
+    def review(self, html: str, request: str, rounds: int) -> str:
+        """Режим «якісно»: перечитує свій код, шукає помилки й виправляє (до rounds разів)."""
+        for i in range(1, rounds + 1):
+            if len(html) > REVIEW_MAX_CHARS:
+                self.log("🛠", "сторінка завелика для перевірки цілком — лишаю як є")
+                break
+            self.stage, self.lines = f"перевіряю {i}/{rounds}", 0
+            errors = js_errors(html)
+            note = f"\nNode.js знайшов синтаксичну помилку в скрипті — її треба виправити:\n{errors}\n" if errors else ""
+            fixed = self._write(REVIEW_PROMPT.format(request=request, html=html, errors=note))
+            if fixed is None:
+                self.log("🛠", f"перевірка {i}: помилок не знайшла" if not errors else
+                         f"перевірка {i}: не змогла виправити")
+                if not errors:
+                    break
+                continue
+            self.log("🛠", f"перевірка {i}: виправила ({fixed.count(chr(10))} рядків)")
+            html = fixed
+        return html
+
+    def start(self, title: str, prompt: str, path: Path, done, request: str = "", rounds: int = 0) -> str:
         if self.busy:
             return f"Я ще пишу сторінку «{self.busy}». Скажу, щойно закінчу."
         self.busy, self.started, self.lines, self._logged = title, time.time(), 0, time.time()
-        self.log("🛠", f"почала писати «{title}»")
+        self.stage = "пишу"
+        self.log("🛠", f"почала писати «{title}»" + (f" (з перевіркою ×{rounds})" if rounds else ""))
 
         def run():
             t = time.time()
@@ -137,7 +195,10 @@ class PageBuilder:
                 if not html:
                     done(f"Не вийшло написати сторінку «{title}»: код вийшов неповний. Спробуй попросити ще раз.")
                     return
-                path.write_text(html, encoding="utf-8")
+                path.write_text(html, encoding="utf-8")          # чернетка — вже є, навіть якщо перевірка впаде
+                if rounds:
+                    html = self.review(html, request, rounds)
+                    path.write_text(html, encoding="utf-8")
                 self.last = path
                 webbrowser.open(path.as_uri())
                 self.log("🛠", f"сторінка «{title}» готова за {time.time() - t:.0f} с: {path}")
@@ -149,12 +210,14 @@ class PageBuilder:
                 self.busy = None
                 self._progress(final="")
         threading.Thread(target=run, daemon=True).start()
-        return (f"Почала писати сторінку «{title}». Це займе хвилину-дві; поки пишу, відповідатиму повільніше. "
+        how = "хвилин 5–10, бо ще перевірю й виправлю помилки" if rounds else "хвилину-дві"
+        return (f"Почала писати сторінку «{title}». Це займе {how}; поки пишу, відповідатиму повільніше. "
                 "Коли буде готово — сама скажу й відкрию.")
 
-    def make(self, name: str, request: str, done) -> str:
+    def make(self, name: str, request: str, done, quick: bool = False) -> str:
         path = pages_dir() / f"{slug(name)}.html"
-        return self.start(name, PAGE_PROMPT.format(request=request), path, done)
+        return self.start(name, PAGE_PROMPT.format(request=request), path, done,
+                          request=request, rounds=0 if quick else self.rounds)
 
     def edit(self, request: str, name: str, done) -> str:
         path = self.find(name)
@@ -162,4 +225,5 @@ class PageBuilder:
             return "Ще немає жодної сторінки, яку можна змінити."
         html = path.read_text(encoding="utf-8")
         path.with_suffix(".bak.html").write_text(html, encoding="utf-8")    # попередня версія — про всяк
-        return self.start(path.stem, EDIT_PROMPT.format(html=html, request=request), path, done)
+        return self.start(path.stem, EDIT_PROMPT.format(html=html, request=request), path, done,
+                          request=f"(правка) {request}", rounds=min(1, self.rounds))
