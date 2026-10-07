@@ -56,3 +56,8 @@ url = "http://127.0.0.1:8090"
 ```
 і перезапусти Хомі. Перевір: «Хомі, хто такий Сковорода?» — у журналі `інструмент wiki …`.
 Оновити Вікіпедію (раз на кілька місяців) — запустити скрипт ще раз.
+
+**Автооновлення:** один раз запусти
+`powershell -ExecutionPolicy Bypass -File .\scripts\schedule-kiwix-update.ps1` — щонеділі о 12:00
+Windows сама перевірить, чи вийшла новіша Вікіпедія, і підмінить (журнал `C:\homyy\kiwix\update.log`).
+Docker Desktop має бути запущений (увімкни в ньому «Start Docker Desktop when you sign in»).
