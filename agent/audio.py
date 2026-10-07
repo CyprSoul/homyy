@@ -201,6 +201,7 @@ class Audio:
         end_silence_ms питаємо модель: так — кінець; ні — слухаємо далі, аж до max_silence_ms тиші.
         """
         self.last_turn = None                              # (ймовірність, після скількох мс тиші) — для журналу
+        self.last_end = None                               # чому закінчила слухати: turn / silence / limit
         pre_roll = collections.deque(maxlen=10)            # 300 мс до початку мовлення
         start_frames_needed = 3                            # 90 мс мовлення = старт
         end_frames_needed = end_silence_ms // FRAME_MS
@@ -243,15 +244,21 @@ class Audio:
                 silence += 1
             too_long = len(recording) * FRAME_MS / 1000 >= max_seconds
             done = too_long
-            if turn is None:
-                done = done or silence >= end_frames_needed
+            self.last_end = "limit" if too_long else None
+            if done:
+                pass
+            elif turn is None:
+                done = silence >= end_frames_needed
+                self.last_end = "silence" if done else None
             elif silence >= max_frames:
                 done = True                                # довго мовчить — точно договорив
+                self.last_end = "silence"
             elif silence >= end_frames_needed and not checked:
                 checked = True
                 pcm = np.frombuffer(b"".join(recording), dtype=np.int16)
                 done = bool(turn(pcm))
                 self.last_turn = (getattr(turn, "last", None), silence * FRAME_MS)
+                self.last_end = "turn" if done else None
             if done:
                 pcm = np.frombuffer(b"".join(recording), dtype=np.int16)
                 return pcm, speech_frames_total * FRAME_MS / 1000

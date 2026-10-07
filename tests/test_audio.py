@@ -107,3 +107,24 @@ def test_listen_waits_while_smart_turn_says_not_done(monkeypatch):
     pcm, speech_s = a.listen(end_silence_ms=300, max_seconds=30, turn=turn, max_silence_ms=2500)
     assert len(calls) == 2                               # не обірвала на першій паузі
     assert len(pcm) >= (33 + 20 + 33) * audio_mod.FRAME_SAMPLES
+
+
+def test_long_story_is_not_cut_at_record_limit(monkeypatch):
+    """Довга розповідь (довше за шматок запису) — Хомі слухає далі й склеює, а не відповідає посеред думки."""
+    import numpy as np
+    from agent import main
+    chunks = [("limit", 30), ("limit", 30), ("turn", 5)]
+
+    class A:
+        last_turn = (0.9, 300)
+        last_end = None
+
+        def listen(self, **k):
+            end, sec = chunks.pop(0)
+            self.last_end = end
+            return np.zeros(sec * 16000, dtype=np.int16), float(sec)
+    monkeypatch.setitem(main.TURN, "model", type("M", (), {"probability": lambda self, pcm: 0.9})())
+    monkeypatch.setattr(main.ui, "set_state", lambda *a: None)
+    cfg = {"wake": {"turn_max_seconds": 30}}
+    text, _, _ = main._hear_smart(cfg, A(), 8, None, lambda pcm: f"{len(pcm) // 16000} с")
+    assert text == "65 с" and not chunks

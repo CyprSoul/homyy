@@ -235,21 +235,35 @@ def _hear_smart(cfg, audio, timeout, first, recognize):
     judge = TurnJudge(TURN["model"], float(w.get("turn_threshold", 0.5)))
     short = int(w.get("turn_silence_ms", 300))
     longest = int(w.get("turn_max_silence_ms", 2500))
+    piece = float(w.get("turn_max_seconds", 60))
     if first is not None:
         pcm = first[0]
         if not judge(pcm):                       # «Хомі, я хочу…» — ще не все
-            more = audio.listen(end_silence_ms=short, max_seconds=25, start_timeout_s=longest / 1000,
+            more = audio.listen(end_silence_ms=short, max_seconds=piece, start_timeout_s=longest / 1000,
                                 turn=judge, max_silence_ms=longest)
             if more is not None:
                 pcm = np.concatenate([pcm, more[0]])
     else:
-        seg = audio.listen(end_silence_ms=short, max_seconds=30, start_timeout_s=timeout,
+        seg = audio.listen(end_silence_ms=short, max_seconds=piece, start_timeout_s=timeout,
                            turn=judge, max_silence_ms=longest)
         if seg is None:
             return None
         pcm = seg[0]
+    # Довга розповідь не обривається на ліміті запису: поки ти говориш — слухаю далі й склеюю
+    for _ in range(4):
+        if getattr(audio, "last_end", None) != "limit":
+            break
+        log("…", f"довга фраза ({len(pcm) / 16000:.0f} с) — слухаю далі, говори")
+        more = audio.listen(end_silence_ms=short, max_seconds=piece, start_timeout_s=longest / 1000,
+                            turn=judge, max_silence_ms=longest)
+        if more is None:
+            break
+        pcm = np.concatenate([pcm, more[0]])
     t_said = time.time()
-    if audio.last_turn and audio.last_turn[0] is not None:
+    end = getattr(audio, "last_end", None)
+    if end == "silence":
+        log("⏸", f"договорив: {longest} мс тиші")
+    elif audio.last_turn and audio.last_turn[0] is not None:
         log("⏸", f"договорив? {audio.last_turn[0]:.2f} (після {audio.last_turn[1]} мс тиші)")
     ui.set_state("hear")
     t = time.time()
