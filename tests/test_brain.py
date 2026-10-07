@@ -144,3 +144,21 @@ def test_streaming_cancel(monkeypatch):
     import pytest
     with pytest.raises(Cancelled):
         b.ask("Привіт", on_sentence=lambda s: None, cancel=lambda: True)
+
+
+def test_greet_in_own_words_and_not_repeating(monkeypatch, tmp_path):
+    b = Brain(CFG)
+    monkeypatch.setattr(b, "_memories", lambda: [])
+    monkeypatch.setattr(Brain, "GREET_FILE", tmp_path / "g.json")
+    sent = []
+    replies = iter(["Ігоре, я прокинулась і вже тут — як твій вечір?", "Привіт-привіт! Усе завантажила, слухаю тебе."])
+
+    def fake_post(url, timeout=None, json=None):
+        sent.append(json["messages"][-1]["content"])
+        return type("R", (), {"raise_for_status": lambda self: None,
+                              "json": lambda self, t=next(replies): {"message": {"content": t}}})()
+    monkeypatch.setattr("agent.brain.requests.post", fake_post)
+    first = b.greet()
+    second = b.greet()
+    assert first and second and first != second
+    assert first in sent[1]                                    # друге привітання знає перше і не повторює

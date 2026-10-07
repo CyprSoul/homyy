@@ -145,3 +145,37 @@ def test_keeps_listening_while_thinking(monkeypatch):
     assert brain.history == [{"role": "user", "content": "раніше"}]        # відповідь викинута
     more, answer = main.ask_while_listening({"wake": {}}, TalkingAudio(False), MoreSTT(), SlowBrain(), "Привіт")
     assert more is None and answer == "лекція"
+
+
+class ShortYesAudio(FakeAudio):
+    def __init__(self):
+        super().__init__()
+        self.done_speaking = threading.Event()
+
+    def listen(self, *a, abort=None, **k):
+        if not self.given:
+            self.given = True
+            return np.zeros(4800, dtype=np.int16), 0.3        # коротке «так» (0.3 с)
+        return None
+
+    def is_playing(self):
+        return False
+
+
+class YesSTT:
+    def command(self, pcm, **kw):
+        return "Так."
+
+
+class QuickSpeaker:
+    def say(self, text, clear_cut=True):
+        import time as _t
+        _t.sleep(0.2)
+        return True
+
+
+def test_short_yes_right_after_question_is_not_lost(monkeypatch):
+    monkeypatch.setattr(main, "log", lambda *a: None)
+    audio = ShortYesAudio()
+    req = main.speak_listening({"wake": {}}, QuickSpeaker(), audio, YesSTT(), "Закрити Discord?")
+    assert req == "Так."

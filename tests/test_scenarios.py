@@ -66,7 +66,7 @@ class FakeAudio:
     def arm_barge_in(self, on):
         pass
 
-    def beep(self, up=True):
+    def beep(self, up=True, drain=True):
         pass
 
     def drain(self):
@@ -184,8 +184,8 @@ class _Stream:
 def test_simple_question_streamed(monkeypatch, tmp_path):
     said, asked, _ = run([("hear", "Як справи?")],
                          [("справи", "У мене все добре. А в тебе як вечір?")], monkeypatch, tmp_path)
-    assert said[0] == "Так?"
-    assert said[1:3] == ["У мене все добре.", "А в тебе як вечір?"]
+    assert "Так?" not in said                         # без «Так?» — лише тихий сигнал
+    assert said[0:2] == ["У мене все добре.", "А в тебе як вечір?"]
 
 
 def test_repeat_without_gemma(monkeypatch, tmp_path):
@@ -233,7 +233,7 @@ def test_language_guard_and_russisms(monkeypatch, tmp_path):
     said, asked, _ = run([("hear", "Що таке самвидав?")],
                          [("самвидав", "Самиздат — це заборонена в СРСР література, яку передруковували потай.")],
                          monkeypatch, tmp_path)
-    assert said[1].startswith("Самвидав — це заборонена")
+    assert said[0].startswith("Самвидав — це заборонена")
 
 
 @pytest.mark.parametrize("phrase", ["Дякую", "Угу"])

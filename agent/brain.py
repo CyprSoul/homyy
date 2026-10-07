@@ -289,6 +289,45 @@ class Brain:
         self.lessons.add(rule, source=f"{request} → {reaction}")
         return rule
 
+    GREET_FILE = REPO_DIR / "agent" / "greetings.json"
+
+    def greet(self) -> str | None:
+        """Привітання після запуску — своїми словами, з урахуванням часу й пам'яті, щоразу інакше."""
+        import json as _json
+        now = datetime.now()
+        part = ("ніч" if now.hour < 5 else "ранок" if now.hour < 12 else "день" if now.hour < 18
+                else "вечір" if now.hour < 23 else "ніч")
+        try:
+            recent = _json.loads(self.GREET_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            recent = []
+        ask = (f"(Службове: тебе щойно запустили — ти повністю завантажилась і готова. Зараз {now:%H:%M}, "
+               f"{part}, {ukr_date(now.date())}. Привітайся зі мною одним-двома короткими реченнями — "
+               "по-своєму, живо, як подруга, з твоїм характером; можеш згадати щось із пам'яті про мене "
+               "чи пору дня. Дай відчути, що ти вже тут і готова. Без шаблонів на кшталт «Я готова до роботи».")
+        if recent:
+            ask += " Не повторюй і не перефразовуй ці привітання: " + " | ".join(recent[-6:])
+        ask += ")"
+        o = self.cfg["ollama"]
+        try:
+            r = requests.post(f"{o['url']}/api/chat", timeout=90, json={
+                "model": o["model"], "stream": False, "think": False, "keep_alive": o.get("keep_alive", "24h"),
+                "options": ollama_options(self.cfg, temperature=0.95, num_predict=80),
+                "messages": [{"role": "system", "content": self._system_prompt()},
+                             {"role": "user", "content": ask}]})
+            r.raise_for_status()
+            text = (r.json()["message"].get("content") or "").strip()
+        except (requests.RequestException, ValueError, KeyError):
+            return None
+        if not text or not looks_ukrainian(text):
+            return None
+        text = self.polish("", text)
+        try:
+            self.GREET_FILE.write_text(_json.dumps((recent + [text])[-10:], ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+        return text
+
     def polish(self, user_text: str, text: str) -> str:
         """Ті самі виправлення, що й для цілої відповіді: час, рід, звертання, русизми."""
         text = fix_gender(strip_unasked_time(user_text, text))

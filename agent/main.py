@@ -118,7 +118,6 @@ def _ollama_keep(cfg, keep_alive):
         pass
 
 
-READY_PHRASES = ["Все, я готова!", "Я готова, можеш питати.", "Готова до роботи!", "Все, я в строю!"]
 
 CFG: dict = {}
 BRAIN: list = []                    # голосовий «мозок» — щоб меню сфери могло почати нову тему
@@ -270,7 +269,17 @@ def speak_listening(cfg, speaker, audio, stt, text, asked: str = "", own=None):
             if not isinstance(seg, tuple) or stop_now():
                 continue
             # тихе (луна з навушників, шум) і коротке — не ти; на такому розпізнавач вигадує фрази
-            if seg[1] < 0.6 or (hasattr(audio, "loud_enough") and not audio.loud_enough(seg[0])):
+            if hasattr(audio, "loud_enough") and not audio.loud_enough(seg[0]):
+                continue
+            if seg[1] < 0.6:
+                playing = getattr(audio, "is_playing", lambda: True)()
+                if playing:
+                    continue
+                # пауза в її мові, а ти коротко відповів («так», «ні», «ага») — не губимо це:
+                # якщо це було під кінець її відповіді, після неї обробимо як твою відповідь
+                short = stt.command(seg[0], fallback=False)
+                if short and not is_noise(short):
+                    result["tail"] = (time.time(), short)
                 continue
             heard = stt.command(seg[0], fallback=False)
             if not heard:
@@ -309,6 +318,8 @@ def speak_listening(cfg, speaker, audio, stt, text, asked: str = "", own=None):
                 log("✋", "перебив голосом — замовкаю й слухаю")
             audio.arm_barge_in(False)
         t.join(timeout=3)
+    if "req" not in result and "tail" in result and time.time() - result["tail"][0] < 2.5:
+        return result["tail"][1]
     return result.get("req")
 
 
@@ -425,11 +436,16 @@ def think_and_speak(cfg, audio, stt, brain, speaker, text: str, on_tool):
 def _conversation(cfg, audio, stt, brain, speaker, first=None):
     w = cfg["wake"]
     if first is None:
-        ui.set_state("speak")
-        try:
-            speaker.say_cached("Так?")      # чітко чути: Хомі прокинулась і слухає
-        except requests.RequestException:
-            audio.beep(up=True)
+        ack = w.get("ack", "beep")
+        if ack == "voice":
+            ui.set_state("speak")
+            try:
+                speaker.say_cached("Так?")
+            except requests.RequestException:
+                audio.beep(up=True)
+        elif ack == "beep":
+            # короткий тихий сигнал без «Так?» — і одразу слухає: можна говорити без паузи після «Хомі»
+            audio.beep(up=True, drain=False)
     timeout = float(w.get("follow_up_seconds", 8))
     pending = None                          # питання, сказане одразу після «стоп»
     announce = True
@@ -594,7 +610,7 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
         if req:
             pending = req                   # «стоп, а яка погода?» — одразу відповідаємо на нове
             continue
-        audio.beep(up=True)                 # «можеш говорити далі без «Хомі»»
+        audio.beep(up=True, drain=False)    # «можеш говорити далі без «Хомі»» (не стираючи твоє швидке «так»)
         timeout = float(w.get("follow_up_seconds", 8))
 
 
@@ -705,21 +721,29 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     def _preload():
         t = time.time()
         _ollama_keep(cfg, cfg["ollama"].get("keep_alive", "24h"))
-        took = time.time() - t
-        log("✓", f"Gemma готова ({took:.0f} с)")
-        # Сказати вголос, що вже можна питати — лише якщо довелося чекати й Хомі зараз нічим не зайнята
-        if took > 3 and cfg.get("ui", {}).get("announce_ready", True):
-            ready_voice.wait(60)
-            if ui.state == "sleep" and not game_mode and not paused.is_set():
-                speak(voice["speaker"], voice["audio"], random.choice(READY_PHRASES))
-                ui.set_state("sleep")
+        log("✓", f"Gemma готова ({time.time() - t:.0f} с)")
+        # Коли все завантажилось — привітатися СВОЇМИ словами (Gemma), щоразу інакше
+        if not cfg.get("ui", {}).get("greet", True):
+            return
+        ready_voice.wait(90)
+        for _ in range(120):                 # не перебиваємо, якщо ти вже з нею говориш
+            if ui.state in ("sleep", "game", "paused"):
+                break
+            time.sleep(0.5)
+        if game_mode or paused.is_set():
+            return
+        text = voice["brain"].greet() or greeting(cfg["user"].get("name_vocative", cfg["user"]["name"]),
+                                                  time.localtime().tm_hour, random.randrange(10))
+        log("Хомі", text)
+        speak(voice["speaker"], voice["audio"], text)
+        ui.set_state("sleep")
     ready_voice = threading.Event()
     threading.Thread(target=_preload, daemon=True).start()
     audio = Audio(cfg)
     brain = Brain(cfg)
     BRAIN.append(brain)
     speaker = Speaker(cfg, audio)
-    voice.update(speaker=speaker, audio=audio)
+    voice.update(speaker=speaker, audio=audio, brain=brain)
     ready_voice.set()
 
     def remind(text: str):
@@ -759,9 +783,8 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     log("👂", "Персональний детектор «Хооміі» увімкнено" if detector else
         "Персонального детектора ще немає — навчи: python -m agent.record_wake")
 
-    log("Хомі", "Готова! Поклич мене: «Хооміі». Вийти — Ctrl+C або правий клік по кульці.")
-    if cfg.get("ui", {}).get("greet", True):
-        speak(speaker, audio, greeting(cfg["user"].get("name_vocative", cfg["user"]["name"]), time.localtime().tm_hour, random.randrange(10)))
+    log("Хомі", "Слухаю. Поклич мене: «Хомі». Вийти — Ctrl+C або правий клік по кульці.")
+    # привітання — коли Gemma завантажиться повністю (див. _preload)
     sleep_state_logged = False
     while True:
         if not sleep_state_logged:

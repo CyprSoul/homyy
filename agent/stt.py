@@ -135,7 +135,11 @@ class STT:
 
     @staticmethod
     def _f32(pcm: np.ndarray) -> np.ndarray:
-        return pcm.astype(np.float32) / 32768.0
+        x = pcm.astype(np.float32) / 32768.0
+        if len(x) < 16000:                       # коротке «так», «ні»: з тишею довкола розпізнається надійніше
+            pad = np.zeros(4800, dtype=np.float32)
+            x = np.concatenate([pad, x, pad])
+        return x
 
     def wake(self, pcm: np.ndarray) -> str:
         segs, _ = self.wake_model.transcribe(self._f32(pcm), language=self.language, beam_size=1,

@@ -287,11 +287,16 @@ class Audio:
             self._play_env = None
             self._last_play_end = time.time()
 
-    def beep(self, up: bool = True):
-        """Короткий сигнал: угору — «слухаю», донизу — «закінчила слухати»."""
+    def is_playing(self) -> bool:
+        return self._play_lock.locked()
+
+    def beep(self, up: bool = True, drain: bool = True):
+        """Короткий сигнал: угору — «слухаю», донизу — «закінчила слухати».
+        drain=False — не викидати те, що мікрофон почув під час сигналу (ти вже говориш)."""
         tones = (660, 990) if up else (990, 660)
         t = np.linspace(0, 0.09, int(RATE * 0.09), endpoint=False)
         fade = np.minimum(1, np.minimum(t, t[::-1]) / 0.01)
         wave = np.concatenate([0.25 * np.sin(2 * np.pi * f * t) * fade for f in tones])
         self.play(wave.astype(np.float32), RATE)
-        self.drain()
+        if drain:
+            self.drain()
