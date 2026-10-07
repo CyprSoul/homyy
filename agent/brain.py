@@ -1,4 +1,5 @@
 """Мозок: Gemma через Ollama з характером Хомі, пам'яттю й інструментами."""
+import json
 import re
 import time
 from datetime import date, datetime
@@ -65,6 +66,63 @@ def strip_unasked_time(question: str, answer: str) -> str:
 HISTORY_IDLE_RESET_S = 300
 
 
+class Cancelled(Exception):
+    """Відповідь скасована: людина ще говорила, поки Gemma думала."""
+
+
+class SentenceStream:
+    """Збирає шматочки тексту від Gemma в речення й віддає їх голосу по одному.
+
+    Речення, що звучить як порожня обіцянка, «я зробила» без дії чи не українською, не
+    озвучується одразу — Хомі спершу перевірить усю відповідь (як і без потоку).
+    """
+
+    def __init__(self, brain: "Brain", user_text: str, emit):
+        self.brain, self.user_text, self.emit = brain, user_text, emit
+        self.buf, self.held, self.spoken = "", [], []
+        self.hold = False
+        self.used_tools = False
+
+    def feed(self, piece: str):
+        self.buf += piece
+        while True:
+            m = re.search(r"[.!?…](?:[\"»)])?\s+", self.buf)
+            if not m:
+                return
+            sent, self.buf = self.buf[:m.end()].strip(), self.buf[m.end():]
+            self._sentence(sent)
+
+    def _risky(self, sent: str) -> bool:
+        if promises_more(sent) or (not self.used_tools and claims_action(sent)):
+            return True
+        return (len(sent.split()) >= 4 and not looks_ukrainian(sent)
+                and not wants_other_language(self.user_text))
+
+    def _sentence(self, sent: str):
+        if self.hold or self._risky(sent):
+            self.hold = True
+            self.held.append(sent)
+            return
+        sent = self.brain.polish(self.user_text, sent)
+        if sent:
+            self.spoken.append(sent)
+            self.emit(sent)
+
+    def new_round(self, used_tools: bool):
+        """Нова відповідь Gemma (після інструментів чи прохання виправитись)."""
+        self.buf, self.held, self.hold, self.used_tools = "", [], False, used_tools
+
+    def flush(self):
+        """Кінець відповіді: доозвучити хвіст (і притримане, якщо перевірка все ж пройшла)."""
+        rest = self.held + ([self.buf.strip()] if self.buf.strip() else [])
+        self.buf, self.held, self.hold = "", [], False
+        for sent in rest:
+            sent = self.brain.polish(self.user_text, sent)
+            if sent:
+                self.spoken.append(sent)
+                self.emit(sent)
+
+
 class Brain:
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -123,7 +181,9 @@ class Brain:
             prompt += "\nЩО ТИ ЗНАЄШ ПРО МЕНЕ (з пам'яті)\n" + "\n".join(f"- {m}" for m in memories)
         return prompt
 
-    def _chat(self, messages: list[dict]) -> dict:
+    def _chat(self, messages: list[dict], on_delta=None, cancel=None) -> dict:
+        if on_delta is not None:
+            return self._chat_stream(messages, on_delta, cancel)
         o = self.cfg["ollama"]
         payload = {
             "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
@@ -145,6 +205,40 @@ class Brain:
         data = r.json()
         self.cut_short = data.get("done_reason") == "length"
         return data["message"]
+
+    def _payload(self, messages: list[dict], stream: bool) -> dict:
+        o = self.cfg["ollama"]
+        return {
+            "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
+            "stream": stream, "think": self.deep, "keep_alive": o.get("keep_alive", "30m"),
+            "options": ollama_options(self.cfg, temperature=o.get("temperature", 0.4),
+                                      num_predict=int(o.get("voice_max_tokens", 160)) + (3000 if self.deep else 0)),
+        }
+
+    def _chat_stream(self, messages: list[dict], on_delta, cancel=None) -> dict:
+        """Те саме, що _chat, але текст іде шматочками в on_delta, поки Gemma ще пише."""
+        o = self.cfg["ollama"]
+        content, calls = [], []
+        with requests.post(f"{o['url']}/api/chat", timeout=300, stream=True,
+                           json=self._payload(messages, True)) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if cancel is not None and cancel():
+                    raise Cancelled()
+                if not line:
+                    continue
+                d = json.loads(line)
+                m = d.get("message") or {}
+                if m.get("tool_calls"):
+                    calls += m["tool_calls"]
+                piece = m.get("content") or ""
+                if piece:
+                    content.append(piece)
+                    on_delta(piece)
+                if d.get("done"):
+                    self._note_stats(d)
+                    self.cut_short = d.get("done_reason") == "length"
+        return {"content": "".join(content), "tool_calls": calls}
 
     def _note_stats(self, d: dict):
         """Звідки береться затримка: завантаження моделі, читання промпта чи сама відповідь."""
@@ -195,7 +289,12 @@ class Brain:
         self.lessons.add(rule, source=f"{request} → {reaction}")
         return rule
 
-    def ask(self, user_text: str, on_tool=None) -> str:
+    def polish(self, user_text: str, text: str) -> str:
+        """Ті самі виправлення, що й для цілої відповіді: час, рід, звертання, русизми."""
+        text = fix_gender(strip_unasked_time(user_text, text))
+        return fix_russisms(fix_vocative(text, self.cfg["user"])).strip()
+
+    def ask(self, user_text: str, on_tool=None, on_sentence=None, cancel=None) -> str:
         if time.time() - self.last_turn > HISTORY_IDLE_RESET_S:
             self.history = []
         self.last_turn = time.time()
@@ -212,8 +311,13 @@ class Brain:
         # «Подумай гарненько…» — Gemma спершу міркує сама з собою (повільніше, 10–30 с, але розумніше)
         self.deep = bool(DEEP.search(user_text))
         self.last_calls, self.last_results = [], []     # для навичок: що саме зробила на це прохання
+        stream = SentenceStream(self, user_text, on_sentence) if on_sentence else None
         for _ in range(MAX_TOOL_ROUNDS + 2):
-            msg = self._chat(messages)
+            if stream:
+                stream.new_round(used_tools)
+                msg = self._chat(messages, on_delta=stream.feed, cancel=cancel)
+            else:
+                msg = self._chat(messages)
             calls = msg.get("tool_calls") or []
             content = msg.get("content") or ""
             if (not calls and not lang_nudged and content and not looks_ukrainian(content)
@@ -238,8 +342,13 @@ class Brain:
                 if getattr(self, "cut_short", False):          # уперлася в ліміт — без обірваного речення
                     m = re.match(r"(?s)(.*[.!?…])", text_)
                     text_ = m.group(1) if m else text_
-                answer = fix_gender(strip_unasked_time(user_text, text_))
-                answer = fix_russisms(fix_vocative(answer, self.cfg["user"]))
+                    if stream:
+                        stream.buf = ""                       # обірваний хвіст не озвучуємо
+                if stream:
+                    stream.flush()
+                    answer = " ".join(stream.spoken) or self.polish(user_text, text_)
+                else:
+                    answer = self.polish(user_text, text_)
                 self.history.append({"role": "assistant", "content": answer})
                 self.last_exchange = (user_text, answer)
                 return answer

@@ -92,6 +92,7 @@ def test_unfinished_phrase_waits_longer():
     assert unfinished("Привіт, як справи?") == 0.0
     assert unfinished("Я хочу.") == 2.5                  # розпізнавач поставив крапку на паузі
     assert unfinished("Нагадай.") == 2.5
+    assert unfinished("Пошукай сферу і покажи.") == 0.0
     assert unfinished("Я хочу м.") == 2.5
     assert unfinished("Привіт.") == 0.7
     assert unfinished("Яка завтра погода в Києві.") == 0.0

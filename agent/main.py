@@ -141,10 +141,14 @@ def resume():
     log("▶️", "Знову слухаю «Хооміі».")
 
 
-def speak(speaker, audio, text: str):
+def speak(speaker, audio, text, clear_cut: bool = True):
+    """text — рядок або потік речень (Gemma ще пише)."""
     ui.set_state("speak")
     try:
-        speaker.say(text)
+        if isinstance(text, str):
+            speaker.say(text, clear_cut=clear_cut)
+        else:
+            speaker.say_stream(text, clear_cut=clear_cut)
     except requests.RequestException as e:
         log("помилка голосу", str(e))
         audio.beep(up=True)
@@ -245,7 +249,7 @@ def _hear_smart(cfg, audio, timeout, first, recognize):
     return text, t_said, time.time() - t
 
 
-def speak_listening(cfg, speaker, audio, stt, text: str, asked: str = ""):
+def speak_listening(cfg, speaker, audio, stt, text, asked: str = "", own=None):
     """Говорить і водночас слухає, чи ти її не перебиваєш. Два способи:
     1) заговорив поверх неї (мікрофон помітно гучніший за луну її голосу) — замовкає й слухає;
     2) почула «стоп», «почекай», «Хомі…» або «стоп, а яка погода?».
@@ -271,13 +275,14 @@ def speak_listening(cfg, speaker, audio, stt, text: str, asked: str = ""):
             heard = stt.command(seg[0], fallback=False)
             if not heard:
                 continue
-            req = interrupt_request(heard, text)
+            mine = text if isinstance(text, str) else (own() if own else "")
+            req = interrupt_request(heard, mine)
             if req is not None:
                 result["req"] = req
                 log("✋", f"перебив словом: «{heard}»")
                 audio.stop_playback()
                 return
-            if foreign_speech(heard, text):
+            if foreign_speech(heard, mine):
                 # ти говориш поверх неї (не луна її голосу) — замовкає й слухає. Якщо почав одразу
                 # після її першого речення — найімовірніше, ти просто договорюєш попередню думку.
                 early = time.time() - started < 8
@@ -288,12 +293,14 @@ def speak_listening(cfg, speaker, audio, stt, text: str, asked: str = ""):
             log("👂", f"під час мови чую: «{heard}»")     # луна її голосу чи щось інше — для налаштування
 
     started = time.time()
+    if hasattr(audio, "cut"):
+        audio.cut.clear()          # саме тут, ДО того, як почали слухати: «стоп» у першу ж мить не загубиться
     if hasattr(audio, "arm_barge_in"):
         audio.arm_barge_in(True)
     t = threading.Thread(target=monitor, daemon=True)
     t.start()
     try:
-        speak(speaker, audio, text)
+        speak(speaker, audio, text, clear_cut=False)
     finally:
         done.set()
         if hasattr(audio, "arm_barge_in"):
@@ -348,6 +355,73 @@ def ask_while_listening(cfg, audio, stt, brain, text: str):
     return None, box.get("answer", "")
 
 
+def think_and_speak(cfg, audio, stt, brain, speaker, text: str, on_tool):
+    """Gemma пише відповідь, а Хомі вже говорить перше речення. Поки перше речення не готове —
+    слухає: якщо ти продовжив думку, генерацію скасовано й треба питати з новим текстом.
+
+    Повертає ("more", повний текст) або ("done", відповідь, req від перебивання).
+    """
+    import queue as _queue
+    from .brain import Cancelled
+    q: "_queue.Queue" = _queue.Queue()
+    cancel = threading.Event()
+    box: dict = {}
+    snapshot = list(brain.history)
+
+    def work():
+        try:
+            box["answer"] = brain.ask(text, on_tool=on_tool, on_sentence=q.put, cancel=cancel.is_set)
+        except Cancelled:
+            box["cancelled"] = True
+        except Exception as e:      # noqa: BLE001
+            box["error"] = e
+        finally:
+            q.put(None)
+
+    worker = threading.Thread(target=work, daemon=True)
+    worker.start()
+    silence = int(cfg["wake"].get("command_silence_ms", 800))
+    first = _queue.Empty
+    while first is _queue.Empty:
+        try:
+            first = q.get(timeout=0.05)
+            break
+        except _queue.Empty:
+            pass
+        seg = audio.listen(end_silence_ms=silence, max_seconds=25, start_timeout_s=0.2,
+                           abort=lambda: not q.empty())
+        if isinstance(seg, tuple) and q.empty():
+            if hasattr(audio, "loud_enough") and not audio.loud_enough(seg[0]):
+                continue
+            extra = stt.command(seg[0], fallback=False)
+            if extra and not is_noise(extra):
+                cancel.set()
+                worker.join(timeout=10)
+                brain.history = snapshot
+                log("✋", f"ти ще говориш («{extra}») — не відповідаю, слухаю далі")
+                return ("more", f"{text} {extra}".strip())
+    if first is None:                           # нічого не озвучено (помилка чи порожня відповідь)
+        worker.join()
+        if "error" in box:
+            raise box["error"]
+        answer = box.get("answer", "")
+        return ("done", answer, speak_listening(cfg, speaker, audio, stt, answer, asked=text) if answer else None)
+    spoken: list[str] = []
+
+    def sentences():
+        item = first
+        while item is not None:
+            spoken.append(item)
+            yield item
+            item = q.get()
+
+    req = speak_listening(cfg, speaker, audio, stt, sentences(), asked=text, own=lambda: " ".join(spoken))
+    worker.join(timeout=30)
+    if "error" in box:
+        log("помилка", str(box["error"]))
+    return ("done", box.get("answer") or " ".join(spoken), req)
+
+
 def _conversation(cfg, audio, stt, brain, speaker, first=None):
     w = cfg["wake"]
     if first is None:
@@ -395,6 +469,7 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
         if game_mode:
             log("🎮", "Gemma прокидається з ігрового режиму (до ~20 с)")
         t_llm = time.time()
+        streamed, req = False, None
         # ---- навчання: зауваження, похвала, «запам'ятай правило», «забудь урок» ----
         from .lessons import feedback, forget_request, taught_rule
         rule = taught_rule(text)
@@ -466,6 +541,26 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 log("⚡", f"навичка «{skill['phrase']}» → {[c['name'] for c in skill['calls']]}")
                 results = [brain.tools.call(c["name"], c["arguments"]) for c in skill["calls"]]
                 answer = brain.direct_reply(text, " ".join(r for r in results if r)[:300])
+            elif cfg["wake"].get("stream", True):
+                # потоком: перше речення звучить, поки Gemma дописує решту
+                def on_tool(n, a):
+                    log("інструмент", f"{n} {a}")
+                    if n in ("web_search", "search_on_site", "find_file", "look_at_screen", "read_page"):
+                        ui.set_state("search")
+                from .brain import DEEP
+                if DEEP.search(text):
+                    log("🧠", "режим «подумай»: Gemma міркує перед відповіддю (10–30 с)")
+                ui.set_state("think")
+                speaker.first_audio_at = None
+                result = think_and_speak(cfg, audio, stt, brain, speaker, text, on_tool)
+                if result[0] == "more":
+                    pending = result[1]
+                    continue
+                _, answer, req = result
+                streamed = True
+                if SKILLS.observe(text, brain.last_calls, brain.last_results):
+                    log("🧠", f"навчилась: «{text}» → {[c['name'] for c in brain.last_calls]}")
+                    speak(speaker, audio, "До речі, я запам'ятала, як це робиться, — наступного разу зроблю одразу.")
             else:
                 more, answer = ask_while_listening(cfg, audio, stt, brain, text)
                 if more:                     # ти ще говорив, поки вона думала — відповідь скасована
@@ -477,12 +572,15 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
         except requests.RequestException as e:
             log("помилка", str(e))
             answer = "Ой, я не можу достукатися до свого мозку. Перевір, будь ласка, чи працює Ollama."
-        log("Хомі", f"{answer}   [думала {time.time() - t_llm:.1f} с]")
+        log("Хомі", f"{answer}   [{'відповідь готова за' if streamed else 'думала'} {time.time() - t_llm:.1f} с]")
         for st in brain.stats:
             log("⏱", st)
-        speaker.first_audio_at = None
-        t_voice = time.time()
-        req = speak_listening(cfg, speaker, audio, stt, answer, asked=text)
+        if streamed:
+            t_voice = t_llm                  # голос ішов паралельно з думанням
+        else:
+            speaker.first_audio_at = None
+            t_voice = time.time()
+            req = speak_listening(cfg, speaker, audio, stt, answer, asked=text)
         if lesson_todo:
             def _learn(todo=lesson_todo):
                 learned = brain.learn(*todo)

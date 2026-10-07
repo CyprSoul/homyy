@@ -1,6 +1,11 @@
+import sys
 import threading
+import types
 
 import numpy as np
+
+for _name in ("sounddevice", "webrtcvad"):          # звукових бібліотек на тестовій машині може не бути
+    sys.modules.setdefault(_name, types.ModuleType(_name))
 
 from agent import main
 
@@ -35,7 +40,7 @@ class FakeSpeaker:
     def __init__(self, audio):
         self.audio = audio
 
-    def say(self, text):
+    def say(self, text, clear_cut=True):
         assert self.audio.cut.wait(3), "Хомі не замовкла"
         return False
 

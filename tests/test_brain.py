@@ -103,3 +103,44 @@ def test_deep_think_and_ukrainian_guard(monkeypatch):
     assert payloads[0]["think"] is True and payloads[0]["options"]["num_predict"] > 1000
     assert answer == "Привіт, усе добре. Самвидав — це цікаво."            # українською й без русизмів
     assert "українською" in payloads[1]["messages"][-1]["content"]
+
+
+class _StreamResp:
+    def __init__(self, chunks):
+        import json as _j
+        self.lines = [_j.dumps({"message": {"content": c}, "done": False}).encode() for c in chunks]
+        self.lines.append(_j.dumps({"message": {"content": ""}, "done": True, "done_reason": "stop"}).encode())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    def iter_lines(self):
+        return iter(self.lines)
+
+
+def test_streaming_speaks_sentences_as_they_come(monkeypatch):
+    b = Brain(CFG)
+    monkeypatch.setattr(b, "_memories", lambda: [])
+    chunks = ["Завтра в Софії ", "сонячно. ", "Самиздат — це ", "цікаво. Хочеш, я знайду ", "ще щось?"]
+    monkeypatch.setattr("agent.brain.requests.post", lambda *a, **k: _StreamResp(chunks))
+    said = []
+    answer = b.ask("Яка погода?", on_sentence=said.append)
+    assert said[0] == "Завтра в Софії сонячно."               # перше речення — одразу, до кінця відповіді
+    assert said[1] == "Самвидав — це цікаво."                 # виправлене словником
+    assert all("Хочеш, я знайду" not in x for x in said[:2])   # обіцянку притримано до перевірки
+
+
+def test_streaming_cancel(monkeypatch):
+    from agent.brain import Cancelled
+    b = Brain(CFG)
+    monkeypatch.setattr(b, "_memories", lambda: [])
+    monkeypatch.setattr("agent.brain.requests.post", lambda *a, **k: _StreamResp(["Раз. ", "Два. "]))
+    import pytest
+    with pytest.raises(Cancelled):
+        b.ask("Привіт", on_sentence=lambda s: None, cancel=lambda: True)

@@ -63,11 +63,46 @@ class Speaker:
                                    nchannels=1, sample_rate=RATE)
         return np.frombuffer(decoded.samples, dtype=np.int16)
 
-    def say(self, text: str) -> bool:
+    def say_stream(self, sentences, clear_cut: bool = True) -> bool:
+        """Говорить речення, щойно вони з'являються (Gemma ще дописує решту). False — якщо перебили."""
+        import queue
+        import threading
+        cut = getattr(self.audio, "cut", None)
+        if cut is not None and clear_cut:
+            cut.clear()
+        futs: "queue.Queue" = queue.Queue()
+
+        def produce():
+            try:
+                for piece in sentences:
+                    for s in split_sentences(clean_for_speech(piece)):
+                        futs.put(self.pool.submit(self._synth, s))
+            finally:
+                futs.put(None)
+        threading.Thread(target=produce, daemon=True).start()
+        first = True
+        while True:
+            f = futs.get()
+            if f is None:
+                break
+            if cut is not None and cut.is_set():
+                f.cancel()
+                continue                        # дочитуємо чергу, нічого не граючи
+            samples = f.result()
+            if first:
+                self.first_audio_at = time.time()
+                first = False
+            self.audio.play(samples, RATE)
+        if cut is not None and cut.is_set():
+            return False
+        self.audio.drain()
+        return True
+
+    def say(self, text: str, clear_cut: bool = True) -> bool:
         """Говорить по реченню. False — якщо перебили («стоп»)."""
         sentences = split_sentences(clean_for_speech(text))
         cut = getattr(self.audio, "cut", None)
-        if cut is not None:
+        if cut is not None and clear_cut:
             cut.clear()
         futures = [self.pool.submit(self._synth, s) for s in sentences]
         for i, f in enumerate(futures):
