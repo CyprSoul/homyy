@@ -22,6 +22,8 @@ _VK = {"pause": 0xB3, "play": 0xB3, "play_pause": 0xB3, "next": 0xB0, "previous"
        "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD}
 
 
+MCP_HUB = None                      # MCP-конектори (agent/mcp_hub.py), підключаються на старті Хомі
+
 _APPS_CACHE: dict = {"time": 0.0, "apps": {}}
 _SKIP_APP = ("uninstall", "видалити", "readme", "help", "documentation", "website", "manual", "license",
              "release notes", "довідка", "деінсталя")
@@ -115,7 +117,8 @@ class Tools(PcTools):
             off |= {"money_balance", "money_spending"}
         if not (c.get("gmail", {}).get("address") and c.get("gmail", {}).get("app_password")):
             off.add("mail_unread")
-        return [s for s in self.base_schemas() + self.pc_schemas(_schema) if s["function"]["name"] not in off]
+        own = [s for s in self.base_schemas() + self.pc_schemas(_schema) if s["function"]["name"] not in off]
+        return own + (MCP_HUB.schemas() if MCP_HUB else [])       # + інструменти MCP-конекторів
 
     def base_schemas(self) -> list[dict]:
         apps = ", ".join(self.apps) or "немає"
@@ -178,6 +181,9 @@ class Tools(PcTools):
 
     # ---- виконання -------------------------------------------------------
     def call(self, name: str, args: dict) -> str:
+        if MCP_HUB and MCP_HUB.has(name):
+            self.awaiting = None
+            return MCP_HUB.call(name, args or {})
         fn = getattr(self, f"_t_{name}", None)
         if fn is None:
             return f"Невідомий інструмент: {name}"

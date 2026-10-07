@@ -707,6 +707,12 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     from .tts import Speaker
 
     stt = STT(cfg)
+    if cfg.get("mcp", {}).get("servers"):
+        from . import tools as tools_mod
+        from .mcp_hub import MCPHub
+        hub = MCPHub(cfg["mcp"]["servers"], log=log)
+        hub.start(wait=float(cfg["mcp"].get("start_timeout", 40)))
+        tools_mod.MCP_HUB = hub
     if cfg["wake"].get("smart_turn", True):
         try:
             from .turn.smart_turn import SmartTurn
