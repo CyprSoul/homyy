@@ -13,7 +13,7 @@ $file = $files[-1]
 $path = Join-Path $dir $file
 Set-Location (Join-Path (Split-Path -Parent $PSScriptRoot) "config\kiwix")
 $env:KIWIX_DIR = $dir
-docker info *> $null
+$ErrorActionPreference = "Continue"; docker info *> $null; $ErrorActionPreference = "Stop"
 if ($LASTEXITCODE -ne 0) { throw "Docker не запущений — запусти Docker Desktop і повтори." }
 if (Test-Path $path) {
     Write-Host "Вже найсвіжіша: $file — нічого качати."
