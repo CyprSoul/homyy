@@ -86,3 +86,20 @@ def test_promise_without_result_is_followed_up(monkeypatch):
     monkeypatch.setattr(b, "_chat", lambda m: next(replies))
     monkeypatch.setattr(b.tools, "call", lambda n, a: "ok")
     assert b.ask("Згорни все і подивись, що в папці Games") == "У папці Games: World of Tanks і CS2."
+
+
+def test_deep_think_and_ukrainian_guard(monkeypatch):
+    b = Brain(CFG)
+    payloads = []
+
+    def fake_post(url, timeout, json):
+        payloads.append(json)
+        content = "Привет, как дела?" if len(payloads) == 1 else "Привіт, усе добре. Самиздат — це цікаво."
+        return type("R", (), {"status_code": 200, "raise_for_status": lambda self: None,
+                              "json": lambda self: {"message": {"content": content}, "done_reason": "stop"}})()
+    monkeypatch.setattr("agent.brain.requests.post", fake_post)
+    monkeypatch.setattr(b, "_memories", lambda: [])
+    answer = b.ask("Добре подумай і скажи, як справи")
+    assert payloads[0]["think"] is True and payloads[0]["options"]["num_predict"] > 1000
+    assert answer == "Привіт, усе добре. Самвидав — це цікаво."            # українською й без русизмів
+    assert "українською" in payloads[1]["messages"][-1]["content"]

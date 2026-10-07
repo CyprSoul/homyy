@@ -194,7 +194,12 @@ def looks_ukrainian(transcript: str) -> bool:
     Parakeet сам вгадує мову й на живому мікрофоні інколи пише російською чи англійською
     («Ты тут…», «Uh none of mine») — тоді перерозпізнаємо Whisper'ом з мовою «uk».
     """
-    letters = [c for c in transcript.lower() if c.isalpha()]
+    # власні назви латиницею («World of Tanks», «CS2», «Discord») — не ознака іншої мови
+    kept = [w for w in transcript.split()
+            if not (re.match(r"[A-Z]", w) or re.search(r"\d", w)) or re.search(r"[а-яіїєґ]", w.lower())]
+    if re.search(r"[a-zA-Z]", transcript) and not re.search(r"[а-яіїєґА-ЯІЇЄҐ]", transcript):
+        return False                     # жодної кириличної літери — точно не українська
+    letters = [c for c in " ".join(kept).lower() if c.isalpha()]
     if not letters:
         return True
     if any(c in _RU_ONLY for c in letters):
@@ -401,3 +406,41 @@ def fix_command(transcript: str) -> str:
 
 _STOPWORDS = {"і", "й", "та", "а", "але", "що", "як", "це", "так", "ти", "я", "мені", "тобі", "мене", "тебе", "в",
               "у", "на", "з", "до", "не", "ну", "то", "чи", "ще", "вже", "просто", "дуже", "його", "її", "їх"}
+
+
+_RUSSISMS: list[tuple[re.Pattern, str]] | None = None
+
+
+def _load_russisms():
+    from pathlib import Path
+    pairs = []
+    f = Path(__file__).resolve().parent / "data" / "russisms.tsv"
+    try:
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.strip() and not line.startswith("#") and "\t" in line:
+                bad, good = line.split("\t", 1)
+                if bad.strip().lower() != good.strip().lower():
+                    pairs.append((re.compile(rf"(?<![\w'])({re.escape(bad.strip())})(?![\w'])", re.IGNORECASE),
+                                  good.strip()))
+    except OSError:
+        pass
+    return pairs
+
+
+def fix_russisms(text: str) -> str:
+    """Виправляє русизми й суржик за словником agent/data/russisms.tsv, зберігаючи велику літеру."""
+    global _RUSSISMS
+    if _RUSSISMS is None:
+        _RUSSISMS = _load_russisms()
+    for rx, good in _RUSSISMS:
+        text = rx.sub(lambda m: good[:1].upper() + good[1:] if m.group(1)[:1].isupper() else good, text)
+    return text
+
+
+_OTHER_LANG = re.compile(r"(англійськ|німецьк|польськ|французьк|іспанськ|італійськ|english|переклад|переклади|"
+                         r"російськ|мовою|in english)", re.IGNORECASE)
+
+
+def wants_other_language(user_text: str) -> bool:
+    """Людина сама просить іншу мову чи переклад — тоді не змушуємо відповідати українською."""
+    return bool(_OTHER_LANG.search(user_text))

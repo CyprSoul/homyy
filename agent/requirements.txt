@@ -10,6 +10,7 @@ pillow>=10
 onnxruntime>=1.17
 soundfile>=0.12
 onnx-asr[cpu,hub]>=0.12
+trafilatura>=1.8          # текст сторінок для пошуку
 winrt-runtime>=2.0; sys_platform == "win32"
 winrt-Windows.Media.Control>=2.0; sys_platform == "win32"
 winrt-Windows.Foundation>=2.0; sys_platform == "win32"

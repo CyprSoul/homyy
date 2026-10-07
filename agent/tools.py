@@ -126,8 +126,12 @@ class Tools(PcTools):
                     {"from_date": {"type": "string", "description": "YYYY-MM-DD"},
                      "to_date": {"type": "string", "description": "YYYY-MM-DD; порожньо = сьогодні"}},
                     ["from_date"]),
-            _schema("web_search", "Пошук в інтернеті: свіжі новини, погода, ціни, факти.",
+            _schema("web_search", "Пошук в інтернеті: свіжі новини, погода, ціни, факти. Повертає 5 результатів "
+                    "і повний текст найкращої сторінки.",
                     {"query": {"type": "string"}}, ["query"]),
+            _schema("read_page", "Прочитати повний текст сторінки за адресою (з результатів пошуку), щоб відповісти "
+                    "точно, а не з короткого уривка.",
+                    {"url": {"type": "string"}}, ["url"]),
             _schema("remember", "Запам'ятати важливий довготривалий факт про користувача. "
                     "Пиши від третьої особи: «Користувач любить…».",
                     {"fact": {"type": "string"}}, ["fact"]),
@@ -198,11 +202,34 @@ class Tools(PcTools):
         r = requests.get(f"{self.cfg['search']['url']}/search",
                          params={"q": query, "format": "json"}, timeout=15)
         r.raise_for_status()
-        results = r.json().get("results", [])[:3]
+        results = r.json().get("results", [])[:5]
         if not results:
             return "Нічого не знайдено."
-        return "\n\n".join(f"{x.get('title', '')}\n{x.get('content', '')[:400]}\nДжерело: {x.get('url', '')}"
-                           for x in results)
+        out = "\n\n".join(f"[{i}] {x.get('title', '')}\n{x.get('content', '')[:400]}\nДжерело: {x.get('url', '')}"
+                          for i, x in enumerate(results, 1))
+        # Уривки короткі — головну сторінку одразу читаємо повністю, щоб відповідь була по суті, а не з уривків
+        page = self._page_text(results[0].get("url", ""), 2500)
+        if page:
+            out += f"\n\nТЕКСТ СТОРІНКИ [1]:\n{page}"
+        return out + "\n\n(Якщо цього мало — прочитай іншу сторінку інструментом read_page.)"
+
+    @staticmethod
+    def _page_text(url: str, limit: int = 6000) -> str:
+        """Основний текст сторінки без меню й реклами (trafilatura)."""
+        if not url.startswith(("http://", "https://")):
+            return ""
+        try:
+            r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "uk,en;q=0.8"})
+            r.raise_for_status()
+            import trafilatura
+            text = trafilatura.extract(r.text, include_comments=False, include_tables=False) or ""
+        except Exception:
+            return ""
+        return " ".join(text.split())[:limit]
+
+    def _t_read_page(self, url: str) -> str:
+        text = self._page_text(url)
+        return f"Текст сторінки {url}:\n{text}" if text else f"Не вдалося прочитати {url}."
 
     def _t_remember(self, fact: str) -> str:
         ow = self.cfg.get("openwebui", {})

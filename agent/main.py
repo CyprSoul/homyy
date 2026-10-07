@@ -280,6 +280,9 @@ def ask_while_listening(cfg, audio, stt, brain, text: str):
         except Exception as e:      # noqa: BLE001 — передаємо далі в головний потік
             box["error"] = e
 
+    from .brain import DEEP
+    if DEEP.search(text):
+        log("🧠", "режим «подумай»: Gemma міркує перед відповіддю (10–30 с)")
     worker = threading.Thread(target=work, daemon=True)
     worker.start()
     silence = int(cfg["wake"].get("command_silence_ms", 800))

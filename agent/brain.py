@@ -6,7 +6,8 @@ from datetime import date, datetime
 import requests
 
 from .config import REPO_DIR, ollama_options
-from .text import claims_action, extract_prompt, promises_more, ukr_date
+from .text import (claims_action, extract_prompt, fix_russisms, looks_ukrainian, promises_more, ukr_date,
+                   wants_other_language)
 from .tools import Tools
 
 VOICE_RULES = """
@@ -27,6 +28,8 @@ STYLE_REMINDER = ("\n\n(Відповідай як Хомі: на «ти», у ж
                   "Просто дай відповідь, не розповідай, що користувалась інструментом.)")
 
 MAX_TOOL_ROUNDS = 4
+DEEP = re.compile(r"(подумай|поміркуй|подумати|обміркуй|розміркуй|проаналізуй|детально розбери|"
+                  r"ретельно|глибоко|як слід подумай|добре подумай)", re.IGNORECASE)
 _TIME_WORDS = ("котра", "година", "годин", "час", "зараз", "сьогодні", "дата", "число", "день")
 _TRAILING_TIME = re.compile(r"\s*(А )?(зараз|вже|до речі,? зараз)\s+(\d{1,2}:\d{2}|\d{1,2} годин[аи]?)[^.!?]*[.!?]?\s*$",
                             re.IGNORECASE)
@@ -73,6 +76,7 @@ class Brain:
         self.stats: list[str] = []          # таймінги Ollama за останнє питання (для журналу)
         self.last_calls: list[dict] = []
         self.last_results: list[str] = []
+        self.deep = False
         self._mem_cache: list[str] = []
         self._mem_time = 0.0
 
@@ -113,9 +117,10 @@ class Brain:
         o = self.cfg["ollama"]
         payload = {
             "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
-            "stream": False, "think": False, "keep_alive": o.get("keep_alive", "30m"),
+            "stream": False, "think": self.deep, "keep_alive": o.get("keep_alive", "30m"),
             "options": ollama_options(self.cfg, temperature=o.get("temperature", 0.4),
-                                      num_predict=int(o.get("voice_max_tokens", 160))),   # голосом — коротко
+                                      # голосом — коротко; у режимі «подумай» ще й місце на роздуми
+                                      num_predict=int(o.get("voice_max_tokens", 160)) + (3000 if self.deep else 0)),
         }
         for attempt in range(2):   # перший запит після простою іноді падає, поки модель вантажиться
             r = requests.post(f"{o['url']}/api/chat", timeout=300, json=payload)
@@ -171,12 +176,22 @@ class Brain:
                                           "— тоді одразу, без інструментів.)"}
         messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
-        used_tools, nudged = False, False
+        used_tools, nudged, lang_nudged = False, False, False
+        # «Подумай гарненько…» — Gemma спершу міркує сама з собою (повільніше, 10–30 с, але розумніше)
+        self.deep = bool(DEEP.search(user_text))
         self.last_calls, self.last_results = [], []     # для навичок: що саме зробила на це прохання
-        for _ in range(MAX_TOOL_ROUNDS + 1):
+        for _ in range(MAX_TOOL_ROUNDS + 2):
             msg = self._chat(messages)
             calls = msg.get("tool_calls") or []
             content = msg.get("content") or ""
+            if (not calls and not lang_nudged and content and not looks_ukrainian(content)
+                    and not wants_other_language(user_text)):
+                # Gemma перескочила на російську/англійську — просимо переказати українською
+                lang_nudged = True
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": "(Службове: відповідай лише українською мовою. "
+                                 "Перекажи свою відповідь українською.)"})
+                continue
             if not calls and not nudged and ((not used_tools and claims_action(content)) or promises_more(content)):
                 # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —
                 # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
@@ -192,7 +207,7 @@ class Brain:
                     m = re.match(r"(?s)(.*[.!?…])", text_)
                     text_ = m.group(1) if m else text_
                 answer = fix_gender(strip_unasked_time(user_text, text_))
-                answer = fix_vocative(answer, self.cfg["user"])
+                answer = fix_russisms(fix_vocative(answer, self.cfg["user"]))
                 self.history.append({"role": "assistant", "content": answer})
                 return answer
             used_tools = True
