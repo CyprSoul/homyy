@@ -12,10 +12,11 @@ $file = $files[-1]
 $path = Join-Path $dir $file
 Write-Host "Качаю $file у $dir (можна перервати й запустити знову — докачає)…"
 curl.exe -L -C - -o $path ($base + $file)
-Get-ChildItem $dir -Filter "wikipedia_uk_all_nopic_*.zim" | Where-Object { $_.Name -ne $file } | Remove-Item -Force
 Set-Location (Join-Path (Split-Path -Parent $PSScriptRoot) "config\kiwix")
 $env:KIWIX_DIR = $dir
-docker compose up -d
+docker compose down 2>$null              # сервер відпускає старий файл
+Get-ChildItem $dir -Filter "wikipedia_uk_all_nopic_*.zim" | Where-Object { $_.Name -ne $file } | Remove-Item -Force
+docker compose up -d --force-recreate    # стартує вже з новим файлом
 Write-Host ""
 Write-Host "Готово. Перевір: http://127.0.0.1:8090 — має відкритися Вікіпедія."
 Write-Host "Далі в agent\config.toml додай:"
