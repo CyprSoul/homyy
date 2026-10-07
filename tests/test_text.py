@@ -173,3 +173,9 @@ def test_dialog_fixes():
     assert not foreign_speech("тобі варто дивитися в бік", her)
     assert promises_more("Це круто. Хочеш, я знайду конкретні приклади коду?")
     assert promises_more("Я можу пошукати для тебе конкретні назви програм.")
+
+
+def test_is_repeat():
+    from agent.text import is_repeat
+    assert is_repeat("Що?") and is_repeat("Повтори, будь ласка") and is_repeat("Не почув")
+    assert not is_repeat("Що таке самвидав?")

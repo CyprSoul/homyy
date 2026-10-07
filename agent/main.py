@@ -19,7 +19,7 @@ from .config import AGENT_DIR, load_config, ollama_options
 from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
-                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command)
+                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command, is_repeat)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -395,6 +395,32 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
         if game_mode:
             log("🎮", "Gemma прокидається з ігрового режиму (до ~20 с)")
         t_llm = time.time()
+        # ---- навчання: зауваження, похвала, «запам'ятай правило», «забудь урок» ----
+        from .lessons import feedback, forget_request, taught_rule
+        rule = taught_rule(text)
+        if rule:
+            brain.lessons.add(rule, source="сам навчив")
+            log("🧠", f"новий урок: {rule}")
+            speak(speaker, audio, "Запам'ятала правило.")
+            audio.beep(up=True)
+            continue
+        about = forget_request(text)
+        if about:
+            n = brain.lessons.forget(about)
+            speak(speaker, audio, "Забула." if n else "Такого уроку в мене немає.")
+            audio.beep(up=True)
+            continue
+        fb = feedback(text)
+        lesson_todo = None
+        if fb == "neg" and brain.last_exchange:
+            lesson_todo = (*brain.last_exchange, text)      # вчитися будемо після відповіді — щоб не гальмувати її
+        elif fb == "pos":
+            brain.lessons.reinforce_last()
+        if is_repeat(text) and brain.last_exchange:      # «Що?», «Повтори» — те саме ще раз
+            log("🔁", "повторюю")
+            speak_listening(cfg, speaker, audio, stt, brain.last_exchange[1], asked=text)
+            audio.beep(up=True)
+            continue
         try:
             intent = media_intent(text)
             awaiting, brain.tools.awaiting = brain.tools.awaiting, None
@@ -457,6 +483,12 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
         speaker.first_audio_at = None
         t_voice = time.time()
         req = speak_listening(cfg, speaker, audio, stt, answer, asked=text)
+        if lesson_todo:
+            def _learn(todo=lesson_todo):
+                learned = brain.learn(*todo)
+                if learned:
+                    log("🧠", f"вчуся з зауваження: {learned}")
+            threading.Thread(target=_learn, daemon=True).start()
         if speaker.first_audio_at:
             log("⏱", f"від кінця твоєї фрази до голосу {speaker.first_audio_at - t_said:.1f} с "
                      f"(розпізнала {stt_s:.1f}, думала {t_voice - t_llm:.1f}, "

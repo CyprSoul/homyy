@@ -10,3 +10,4 @@ agent/orb_error.log
 agent/bench.txt
 agent/stt_compare.txt
 agent/skills.json
+agent/lessons.json

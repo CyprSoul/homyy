@@ -444,3 +444,13 @@ _OTHER_LANG = re.compile(r"(англійськ|німецьк|польськ|ф�
 def wants_other_language(user_text: str) -> bool:
     """Людина сама просить іншу мову чи переклад — тоді не змушуємо відповідати українською."""
     return bool(_OTHER_LANG.search(user_text))
+
+
+_REPEAT = {"що", "шо", "га", "повтори", "ще раз", "не почув", "не почула", "не розчув", "що ти сказала",
+           "повтори будь ласка", "ще раз будь ласка", "що що", "а що", "повтори ще раз"}
+
+
+def is_repeat(transcript: str) -> bool:
+    """«Що?», «Повтори», «Не почув» — повторити останню відповідь (без Gemma)."""
+    t = collapse(transcript).replace("'", "")
+    return t in _REPEAT or t.startswith("повтори")

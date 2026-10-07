@@ -71,6 +71,13 @@ class Brain:
         self.tools = Tools(cfg)
         self.prompt_template = extract_prompt(
             (REPO_DIR / "prompts" / "homyy-system-prompt.md").read_text(encoding="utf-8"))
+        try:   # «як говорять люди» — живі розмовні ситуації, лише для голосу
+            self.cases = extract_prompt((REPO_DIR / "prompts" / "dialog-cases.md").read_text(encoding="utf-8"))
+        except OSError:
+            self.cases = ""
+        from .lessons import LessonBook
+        self.lessons = LessonBook()
+        self.last_exchange: tuple[str, str] | None = None
         self.history: list[dict] = []
         self.last_turn = 0.0
         self.stats: list[str] = []          # таймінги Ollama за останнє питання (для журналу)
@@ -105,6 +112,9 @@ class Brain:
                   .replace("{{USER_NAME}}", user.get("name_genitive", user["name"]))
                   .replace("{{CURRENT_DATE}}", ukr_date(date.today())))
         prompt += "\n" + VOICE_RULES
+        if self.cases:
+            prompt += "\n" + self.cases + "\n"
+        prompt += self.lessons.prompt_block()
         voc = user.get("name_vocative")
         if voc:
             prompt += f"- Звертаючись до мене, кажи саме «{voc}».\n"
@@ -157,11 +167,33 @@ class Brain:
         self.stats = []
         answer = self.tools.call(tool, args)
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
+        self.last_exchange = (user_text, answer)
         return answer
 
     def direct_reply(self, user_text: str, answer: str) -> str:
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
+        self.last_exchange = (user_text, answer)
         return answer
+
+    def learn(self, request: str, answer: str, reaction: str) -> str | None:
+        """Сформулювати правило з твого зауваження й записати в уроки. Повертає правило або None."""
+        from .lessons import LESSON_PROMPT
+        o = self.cfg["ollama"]
+        try:
+            r = requests.post(f"{o['url']}/api/chat", timeout=60, json={
+                "model": o["model"], "stream": False, "think": False, "keep_alive": o.get("keep_alive", "24h"),
+                "options": ollama_options(self.cfg, temperature=0.2, num_predict=80),
+                "messages": [{"role": "user", "content": LESSON_PROMPT.format(
+                    request=request, answer=answer, feedback=reaction)}]})
+            r.raise_for_status()
+            rule = (r.json()["message"].get("content") or "").strip().strip('"«»')
+        except (requests.RequestException, ValueError, KeyError):
+            return None
+        if not rule or rule.upper().startswith("NONE"):
+            return None
+        rule = fix_russisms(rule.splitlines()[0])
+        self.lessons.add(rule, source=f"{request} → {reaction}")
+        return rule
 
     def ask(self, user_text: str, on_tool=None) -> str:
         if time.time() - self.last_turn > HISTORY_IDLE_RESET_S:
@@ -209,6 +241,7 @@ class Brain:
                 answer = fix_gender(strip_unasked_time(user_text, text_))
                 answer = fix_russisms(fix_vocative(answer, self.cfg["user"]))
                 self.history.append({"role": "assistant", "content": answer})
+                self.last_exchange = (user_text, answer)
                 return answer
             used_tools = True
             messages.append({"role": "assistant", "content": msg.get("content", ""), "tool_calls": calls})
