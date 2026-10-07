@@ -14,7 +14,7 @@ Write-Host "Качаю $file у $dir (можна перервати й запу�
 curl.exe -L -C - -o $path ($base + $file)
 Set-Location (Join-Path (Split-Path -Parent $PSScriptRoot) "config\kiwix")
 $env:KIWIX_DIR = $dir
-docker compose down 2>$null              # сервер відпускає старий файл
+docker compose down                       # сервер відпускає старий файл
 Get-ChildItem $dir -Filter "wikipedia_uk_all_nopic_*.zim" | Where-Object { $_.Name -ne $file } | Remove-Item -Force
 docker compose up -d --force-recreate    # стартує вже з новим файлом
 Write-Host ""
