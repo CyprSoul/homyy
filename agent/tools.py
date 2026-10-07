@@ -134,6 +134,16 @@ class Tools(PcTools):
             _schema("web_search", "Пошук в інтернеті: свіжі новини, погода, ціни, факти. Повертає 5 результатів "
                     "і повний текст найкращої сторінки.",
                     {"query": {"type": "string"}}, ["query"]),
+            _schema("make_page", "Написати нову сторінку-програму (HTML у браузері): трекер тренувань, калькулятор, "
+                    "таймер, список справ, гра тощо. Пишеш у фоні 1–2 хв, потім сама кажеш «готово» й відкриваєш.",
+                    {"name": {"type": "string", "description": "Коротка назва, напр. «тренування»"},
+                     "request": {"type": "string", "description": "Детально, що має бути на сторінці й як працювати"}},
+                    ["name", "request"]),
+            _schema("edit_page", "Змінити вже написану сторінку («зроби кнопки більшими», «додай графік»).",
+                    {"request": {"type": "string", "description": "Що змінити"},
+                     "name": {"type": "string", "description": "Назва сторінки; порожньо — остання"}}, ["request"]),
+            _schema("open_page", "Відкрити написану раніше сторінку.",
+                    {"name": {"type": "string", "description": "Назва сторінки; порожньо — остання"}}),
             _schema("recall", "Згадати, про що ми говорили раніше (щоденник розмов): «що я казав про тренування», "
                     "«про що ми говорили вчора».",
                     {"query": {"type": "string", "description": "Тема чи ключові слова"}}, ["query"]),
@@ -240,6 +250,29 @@ class Tools(PcTools):
         except Exception:
             return ""
         return " ".join(text.split())[:limit]
+
+    def _builder(self):
+        if not hasattr(self, "_page_builder"):
+            from .builder import PageBuilder
+            self._page_builder = PageBuilder(self.cfg)
+        return self._page_builder
+
+    def _page_done(self, text: str):
+        if self.on_reminder:
+            self.on_reminder(text)
+
+    def _t_make_page(self, name: str, request: str) -> str:
+        return self._builder().make(name, request, self._page_done)
+
+    def _t_edit_page(self, request: str, name: str = "") -> str:
+        return self._builder().edit(request, name, self._page_done)
+
+    def _t_open_page(self, name: str = "") -> str:
+        path = self._builder().find(name)
+        if path is None:
+            return "Такої сторінки ще немає."
+        webbrowser.open(path.as_uri())
+        return f"Відкрила сторінку «{path.stem}»."
 
     def _t_recall(self, query: str) -> str:
         from .diary import Diary
