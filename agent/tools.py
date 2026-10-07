@@ -134,14 +134,15 @@ class Tools(PcTools):
             _schema("web_search", "Пошук в інтернеті: свіжі новини, погода, ціни, факти. Повертає 5 результатів "
                     "і повний текст найкращої сторінки.",
                     {"query": {"type": "string"}}, ["query"]),
-            _schema("make_page", "Написати нову сторінку-програму (HTML у браузері): трекер тренувань, калькулятор, "
-                    "таймер, список справ, гра тощо. Пишеш у фоні 1–2 хв, потім сама кажеш «готово» й відкриваєш.",
+            _schema("make_page", "Написати сайт чи сторінку-програму (один HTML-файл у браузері, можна з кількома "
+                    "розділами/вкладками): сайт-візитка, трекер тренувань, калькулятор, таймер, список справ, гра тощо. Пишеш у фоні 1–2 хв, потім сама кажеш «готово» й відкриваєш.",
                     {"name": {"type": "string", "description": "Коротка назва, напр. «тренування»"},
                      "request": {"type": "string", "description": "Детально, що має бути на сторінці й як працювати"}},
                     ["name", "request"]),
             _schema("edit_page", "Змінити вже написану сторінку («зроби кнопки більшими», «додай графік»).",
                     {"request": {"type": "string", "description": "Що змінити"},
                      "name": {"type": "string", "description": "Назва сторінки; порожньо — остання"}}, ["request"]),
+            _schema("page_status", "Як просувається сторінка/сайт, яку ти зараз пишеш («як там сайт?», «скоро?»)."),
             _schema("open_page", "Відкрити написану раніше сторінку.",
                     {"name": {"type": "string", "description": "Назва сторінки; порожньо — остання"}}),
             _schema("recall", "Згадати, про що ми говорили раніше (щоденник розмов): «що я казав про тренування», "
@@ -254,7 +255,8 @@ class Tools(PcTools):
     def _builder(self):
         if not hasattr(self, "_page_builder"):
             from .builder import PageBuilder
-            self._page_builder = PageBuilder(self.cfg)
+            self._page_builder = PageBuilder(self.cfg, log=getattr(self, "log_fn", print))
+            self._page_builder.on_task = getattr(self, "on_task", None)
         return self._page_builder
 
     def _page_done(self, text: str):
@@ -266,6 +268,9 @@ class Tools(PcTools):
 
     def _t_edit_page(self, request: str, name: str = "") -> str:
         return self._builder().edit(request, name, self._page_done)
+
+    def _t_page_status(self) -> str:
+        return self._builder().status()
 
     def _t_open_page(self, name: str = "") -> str:
         path = self._builder().find(name)

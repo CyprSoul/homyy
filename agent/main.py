@@ -792,6 +792,8 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
             log("помилка нагадування", str(e))
         ui.set_state(prev)
     brain.tools.on_reminder = remind
+    brain.tools.log_fn = log
+    brain.tools.on_task = (lambda text: orb.set_task(text)) if orb is not None else None
 
     if cfg.get("telegram", {}).get("token"):
         from .telegram_bot import TelegramBot

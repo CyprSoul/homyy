@@ -29,3 +29,26 @@ def test_make_page_in_background(monkeypatch, tmp_path):
     assert ev.wait(5)
     assert "редаг" in (tmp_path / "тренування.html").read_text(encoding="utf-8")
     assert (tmp_path / "тренування.bak.html").exists()
+
+
+def test_streaming_progress(monkeypatch, tmp_path):
+    import json
+    b = builder.PageBuilder({"ollama": {"url": "http://x", "model": "m"}}, log=lambda *a: None)
+    shown = []
+    b.on_task = shown.append
+    b.busy, b.started = "сайт", 0
+    lines = [json.dumps({"message": {"content": c}}).encode() for c in ("<!DOCTYPE html>\n<html>\n", "<body>Привіт</body>\n")]
+    lines.append(json.dumps({"message": {"content": "</html>"}, "done": True}).encode())
+
+    class R:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def raise_for_status(self): pass
+        def iter_lines(self): return iter(lines)
+    monkeypatch.setattr(builder.requests, "post", lambda *a, **k: R())
+    html = b._write("x")
+    assert html.startswith("<!DOCTYPE html>") and html.endswith("</html>")
+    assert b.lines == 3 and shown and "пишу" in shown[0]
+    assert "3 рядків" in b.status()
+    b.busy = None
+    assert b.status() == "Зараз нічого не пишу."

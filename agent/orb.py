@@ -23,7 +23,7 @@ STATES = {
     "paused": ((75, 78, 92), 0.2, 0.01, "Пауза · не слухаю"),
     "game":   ((148, 163, 184), 0.3, 0.0, ""),
 }
-W, H = 150, 168
+W, H = 170, 188
 R = 40            # радіус сфери
 
 
@@ -104,6 +104,11 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
             if self.state != self._sent_state:
                 self._sent_state = self.state
                 self.web.page().runJavaScript(f"window.setHomyyState && setHomyyState('{self.state}')")
+            task = getattr(self, "task", "")
+            if task != getattr(self, "_sent_task", ""):
+                import json as _json
+                self._sent_task = task
+                self.web.page().runJavaScript(f"window.setTask && setTask({_json.dumps(task)})")
             now = time.perf_counter()
             if now - self._level_t > 0.05 and abs(self.level - self._sent_level) > 0.02:
                 self._level_t, self._sent_level = now, self.level
@@ -147,6 +152,8 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
                         else:
                             self.hide()
                             self.timer.setInterval(400)
+                    elif kind == "task":
+                        self.task = value
                     elif kind == "quit":
                         QApplication.quit()
                         return
@@ -389,6 +396,10 @@ class OrbClient:
 
     def set_visible(self, visible: bool):
         self.cmd_q.put(("visible", bool(visible)))
+
+    def set_task(self, text: str):
+        """Рядок фонової роботи під сферою («🛠 сайт · 120 рядків · 1:05»); "" — прибрати."""
+        self.cmd_q.put(("task", str(text)))
 
     def next_event(self, timeout: float):
         try:

@@ -11,11 +11,14 @@
   #caption { position: absolute; left: 0; right: 0; top: 146px; text-align: center; color: #f5f5fa;
              font: 600 12px "Segoe UI", system-ui, sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,.85);
              transition: opacity .3s; }
+  #task { position: absolute; left: 0; right: 0; top: 164px; text-align: center; color: #fbbf24;
+          font: 600 11px "Segoe UI", system-ui, sans-serif; text-shadow: 0 1px 2px rgba(0,0,0,.9); white-space: nowrap; }
 </style>
 </head>
 <body>
 <div id="wrap"><div id="orb"></div></div>
 <div id="caption"></div>
+<div id="task"></div>
 <script>
   // Як на сайті: світлі точки без підсвітки. ?tint=1 — легкий відтінок кольору стану.
   const TINT = new URLSearchParams(location.search).get("tint") === "1";
@@ -55,6 +58,7 @@
     caption.textContent = s.caption;
     wrap.style.opacity = name === "game" ? 0.55 : name === "paused" ? 0.6 : 1;
   };
+  window.setTask = function (t) { document.getElementById("task").textContent = t || ""; };
   window.setLevel = function (x) { level = Math.max(0, Math.min(1, x)); };
 
   // плавний перехід кольору й легке «дихання» в такт голосу (лише масштаб, без зміни швидкості)

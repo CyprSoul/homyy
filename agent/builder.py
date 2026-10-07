@@ -65,15 +65,56 @@ class PageBuilder:
         self.log = log
         self.busy: str | None = None
         self.last: Path | None = None
+        self.on_task = None                 # рядок прогресу під сферою (main підставляє)
+        self.started = 0.0
+        self.lines = 0
+        self._logged = 0.0
 
     def _write(self, prompt: str) -> str | None:
+        """Пише потоком: так видно прогрес (рядки, час) — у журналі, під сферою й на питання «як там?»."""
+        import json
         o = self.cfg["ollama"]
-        r = requests.post(f"{o['url']}/api/chat", timeout=900, json={
-            "model": o["model"], "stream": False, "think": False, "keep_alive": o.get("keep_alive", "24h"),
-            "options": ollama_options(self.cfg, temperature=0.4, num_predict=8000),
-            "messages": [{"role": "user", "content": prompt}]})
-        r.raise_for_status()
-        return extract_html(r.json()["message"].get("content") or "")
+        parts: list[str] = []
+        last = 0.0
+        with requests.post(f"{o['url']}/api/chat", timeout=900, stream=True, json={
+                "model": o["model"], "stream": True, "think": False, "keep_alive": o.get("keep_alive", "24h"),
+                "options": ollama_options(self.cfg, temperature=0.4, num_predict=8000),
+                "messages": [{"role": "user", "content": prompt}]}) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                parts.append(chunk.get("message", {}).get("content", ""))
+                self.lines = "".join(parts).count("\n")
+                if time.time() - last > 3:
+                    last = time.time()
+                    self._progress()
+                if chunk.get("done"):
+                    break
+        return extract_html("".join(parts))
+
+    def status(self) -> str:
+        if not self.busy:
+            return "Зараз нічого не пишу."
+        m, sec = divmod(int(time.time() - self.started), 60)
+        return f"Пишу «{self.busy}»: {m}:{sec:02d}, вже {self.lines} рядків коду."
+
+    def _progress(self, final: str | None = None):
+        if final is not None:
+            text = final
+        else:
+            m, sec = divmod(int(time.time() - self.started), 60)
+            text = f"🛠 {self.busy} · {self.lines} рядків · {m}:{sec:02d}"
+        if self.on_task:
+            try:
+                short = text if final is not None else f"🛠 пишу {m}:{sec:02d} · {self.lines} р."
+                self.on_task(short)
+            except Exception:  # noqa: BLE001
+                pass
+        if final is None and time.time() - self._logged > 20:
+            self._logged = time.time()
+            self.log("🛠", text)
 
     def find(self, name: str = "") -> Path | None:
         pages = [p for p in pages_dir().glob("*.html") if not p.name.endswith(".bak.html")]
@@ -86,7 +127,8 @@ class PageBuilder:
     def start(self, title: str, prompt: str, path: Path, done) -> str:
         if self.busy:
             return f"Я ще пишу сторінку «{self.busy}». Скажу, щойно закінчу."
-        self.busy = title
+        self.busy, self.started, self.lines, self._logged = title, time.time(), 0, time.time()
+        self.log("🛠", f"почала писати «{title}»")
 
         def run():
             t = time.time()
@@ -105,6 +147,7 @@ class PageBuilder:
                 done(f"Не вийшло написати сторінку «{title}».")
             finally:
                 self.busy = None
+                self._progress(final="")
         threading.Thread(target=run, daemon=True).start()
         return (f"Почала писати сторінку «{title}». Це займе хвилину-дві; поки пишу, відповідатиму повільніше. "
                 "Коли буде готово — сама скажу й відкрию.")
