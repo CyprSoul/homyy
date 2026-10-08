@@ -74,6 +74,7 @@ def test_gemini_writes_and_falls_back(monkeypatch):
     import json
     cfg = {"ollama": {"url": "http://x", "model": "m"}, "coder": {"gemini_key": "k"}}
     b = builder.PageBuilder(cfg, log=lambda *a: None)
+    b._models = ["gemini-flash-latest", "gemini-flash-lite-latest"]
     b.busy, b.started = "сайт", 0
     sent = {}
     events = ["data: " + json.dumps({"candidates": [{"content": {"parts": [{"text": t}]}}]})
@@ -109,6 +110,7 @@ def test_gemini_overloaded_retries_then_succeeds(monkeypatch):
     import json
     b = builder.PageBuilder({"ollama": {"url": "http://x", "model": "m"}, "coder": {"gemini_key": "k"}},
                             log=lambda *a: None)
+    b._models = ["gemini-flash-latest", "gemini-flash-lite-latest"]
     b.busy, b.started = "сайт", 0
     monkeypatch.setattr(builder.time, "sleep", lambda s: None)
     calls = []
@@ -130,3 +132,23 @@ def test_gemini_overloaded_retries_then_succeeds(monkeypatch):
     monkeypatch.setattr(builder.requests, "post", post)
     monkeypatch.setattr(b, "_write_local", lambda p: (_ for _ in ()).throw(AssertionError("не мала писати сама")))
     assert b._write("x") == "<!DOCTYPE html><html>ok</html>" and len(calls) == 3 and b.author == "Gemini"
+
+
+def test_pick_gemini_models_from_google_listing():
+    listing = {"models": [
+        {"name": "models/gemini-3.6-flash", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.5-flash", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.1-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.7-flash-preview", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.6-flash-image", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.5-pro", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]}]}
+    got = builder.pick_gemini_models(listing, "gemini-flash-latest")
+    assert got == ["gemini-flash-latest", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"]
+
+
+def test_auto_prefers_stable():
+    listing = {"models": [
+        {"name": "models/gemini-3.7-flash-preview", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/gemini-3.6-flash", "supportedGenerationMethods": ["generateContent"]}]}
+    assert builder.pick_gemini_models(listing, "auto") == ["gemini-3.6-flash", "gemini-3.7-flash-preview"]

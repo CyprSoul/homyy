@@ -69,7 +69,28 @@ def js_errors(html: str) -> str:
     return "" if r.returncode == 0 else (r.stderr or r.stdout).replace(f.name, "script.js")[-1500:]
 
 
-GEMINI_BACKUP_MODELS = ("gemini-2.5-flash", "gemini-flash-lite-latest")
+GEMINI_BACKUP_MODELS = ("gemini-flash-latest", "gemini-flash-lite-latest")   # якщо список моделей не отримали
+_SKIP_MODEL = re.compile(r"(image|tts|audio|live|embed|vision|learnlm|gemma|robotics|computer|search|aqa)", re.I)
+
+
+def pick_gemini_models(listing: dict, preferred: str, limit: int = 4) -> list[str]:
+    """Відповідь Google «які моделі є» → кого пробувати: обрана, далі стабільні Flash (новіші першими),
+    Flash-Lite, preview. Назви моделей Google міняє щокілька місяців — тому не вписуємо їх руками."""
+    def version(name: str) -> float:
+        m = re.search(r"gemini-(\d+(?:\.\d+)?)", name)
+        return float(m.group(1)) if m else 0.0
+
+    cands = []
+    for m in listing.get("models", []):
+        name = m.get("name", "").removeprefix("models/")
+        if ("generateContent" not in m.get("supportedGenerationMethods", []) or "gemini" not in name
+                or "flash" not in name or _SKIP_MODEL.search(name)):
+            continue
+        unstable = bool(re.search(r"(preview|exp|latest)", name))
+        lite = "lite" in name
+        cands.append(((unstable, lite, -version(name)), name))
+    ordered = [n for _, n in sorted(cands)]
+    return list(dict.fromkeys([p for p in [preferred] if p and p != "auto"] + ordered))[:limit]
 GEMINI_ERRORS = {400: "ключ чи запит не підходить", 401: "ключ не підходить", 403: "ключ не має доступу",
                  404: "такої моделі немає", 429: "вичерпано безкоштовний ліміт", 500: "збій у Google",
                  503: "сервер Google перевантажений", 504: "Google не встиг відповісти"}
@@ -136,15 +157,32 @@ class PageBuilder:
         self.stage = "пишу сама"
         return self._write_local(prompt)
 
+    def _gemini_models(self) -> list[str]:
+        """Які моделі Gemini зараз доступні з цим ключем (питаємо Google раз на запуск)."""
+        c = self.cfg["coder"]
+        preferred = c.get("model", "auto")
+        if getattr(self, "_models", None):
+            return self._models
+        try:
+            r = requests.get("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",
+                             headers={"x-goog-api-key": c["gemini_key"]}, timeout=15)
+            r.raise_for_status()
+            self._models = pick_gemini_models(r.json(), preferred)
+            self.log("🛠", f"моделі Gemini для коду: {', '.join(self._models)}")
+            return self._models
+        except (requests.RequestException, ValueError) as e:
+            self.log("🛠", f"не отримала список моделей Gemini ({str(e)[:100]}) — пробую стандартні")
+            return list(dict.fromkeys([p for p in [preferred] if p != "auto"] + list(GEMINI_BACKUP_MODELS)))
+
     def _gemini_with_retries(self, prompt: str) -> tuple[str | None, str]:
         """503/500 у Gemini — «сервер перевантажений», зазвичай на секунди: пробуємо ще, потім іншу модель."""
-        c = self.cfg["coder"]
-        models = list(dict.fromkeys([c.get("model", "gemini-flash-latest"), *GEMINI_BACKUP_MODELS]))
+        models = self._gemini_models()
         why = "невідома помилка"
-        for model in models:
-            for attempt, pause in enumerate((0, 4, 10)):
+        for n, model in enumerate(models):
+            pauses = (0, 4, 10) if n == 0 else (0, 5)       # обрану чекаємо довше, запасні — коротко
+            for attempt, pause in enumerate(pauses):
                 if pause:
-                    self.stage = f"чекаю Gemini ({attempt + 1}/3)"
+                    self.stage = f"чекаю Gemini ({attempt + 1}/{len(pauses)})"
                     self._progress()
                     time.sleep(pause)
                 try:

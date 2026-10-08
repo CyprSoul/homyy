@@ -136,4 +136,4 @@ review_rounds = 2
 # Ключ: https://aistudio.google.com/apikey → Create API key. Лише тут, нікому в чат.
 # Туди йде тільки завдання на код; розмови й пам'ять лишаються на ПК.
 gemini_key = ""
-model = "gemini-flash-latest"
+model = "auto"   # auto — Хомі сама бере найновішу стабільну Flash, а при перевантаженні — інші
