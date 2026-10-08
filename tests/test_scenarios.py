@@ -286,3 +286,19 @@ def test_media_reflex_without_gemma(monkeypatch, tmp_path):
     monkeypatch.setattr("agent.tools.Tools.call", lambda self, n, a: used.append((n, a["action"])) or "Поставила на паузу.")
     said, asked, _ = run([("hear", "Постав на паузу.")], [], monkeypatch, tmp_path)
     assert used == [("media", "pause")] and asked == [] and "Поставила на паузу." in said
+
+
+def test_background_tool_promise_is_not_nudged():
+    """Після make_page «скажу, коли буде готово» — правда; не просимо Gemma «зробити зараз» і не дублюємо відповідь."""
+    from agent.brain import Brain
+    b = Brain({"user": {"name": "Ігор"}, "ollama": {"url": "http://x", "model": "m"}, "apps": {},
+               "search": {"url": "http://x"}, "openwebui": {}})
+    replies = iter([
+        {"tool_calls": [{"function": {"name": "make_page", "arguments": {"name": "т", "request": "трекер"}}}]},
+        {"content": "Передала завдання Gemini, зачекай хвилинку — скажу, коли буде готово."},
+        {"content": "ЗАЙВА ДРУГА ВІДПОВІДЬ"}])
+    b._chat = lambda messages, **k: next(replies)
+    b._memories = lambda: []
+    b.tools.call = lambda name, args: "Передала завдання."
+    answer = b.ask("Напиши сторінку для тренувань")
+    assert "ЗАЙВА" not in answer and "Gemini" in answer

@@ -32,6 +32,8 @@ STYLE_REMINDER = ("\n\n(Відповідай як Хомі: на «ти», у ж
                   "Просто дай відповідь, не розповідай, що користувалась інструментом.)")
 
 MAX_TOOL_ROUNDS = 4
+# Роботу ці інструменти доробляють у фоні й самі кажуть «готово» — «скажу, коли буде» тут правда, не порожня обіцянка
+BACKGROUND_TOOLS = {"make_page", "edit_page", "set_reminder"}
 DEEP = re.compile(r"(подумай|поміркуй|подумати|обміркуй|розміркуй|проаналізуй|детально розбери|"
                   r"ретельно|глибоко|як слід подумай|добре подумай)", re.IGNORECASE)
 _TIME_WORDS = ("котра", "година", "годин", "час", "зараз", "сьогодні", "дата", "число", "день")
@@ -85,6 +87,7 @@ class SentenceStream:
         self.buf, self.held, self.spoken = "", [], []
         self.hold = False
         self.used_tools = False
+        self.background = False
 
     def feed(self, piece: str):
         self.buf += piece
@@ -96,7 +99,7 @@ class SentenceStream:
             self._sentence(sent)
 
     def _risky(self, sent: str) -> bool:
-        if promises_more(sent) or (not self.used_tools and claims_action(sent)):
+        if (promises_more(sent) and not self.background) or (not self.used_tools and claims_action(sent)):
             return True
         return (len(sent.split()) >= 4 and not looks_ukrainian(sent)
                 and not wants_other_language(self.user_text))
@@ -373,7 +376,7 @@ class Brain:
                                           "— тоді одразу, без інструментів.)"}
         messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
-        used_tools, nudged, lang_nudged = False, False, False
+        used_tools, nudged, lang_nudged, background = False, False, False, False
         # «Подумай гарненько…» — Gemma спершу міркує сама з собою (повільніше, 10–30 с, але розумніше)
         self.deep = bool(DEEP.search(user_text))
         self.last_calls, self.last_results = [], []     # для навичок: що саме зробила на це прохання
@@ -394,7 +397,8 @@ class Brain:
                 messages.append({"role": "user", "content": "(Службове: відповідай лише українською мовою. "
                                  "Перекажи свою відповідь українською.)"})
                 continue
-            if not calls and not nudged and ((not used_tools and claims_action(content)) or promises_more(content)):
+            if not calls and not nudged and ((not used_tools and claims_action(content))
+                                             or (promises_more(content) and not background)):
                 # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —
                 # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
                 nudged = True
@@ -419,6 +423,9 @@ class Brain:
                 self.last_exchange = (user_text, answer)
                 return answer
             used_tools = True
+            background = background or any(c["function"]["name"] in BACKGROUND_TOOLS for c in calls)
+            if stream:
+                stream.background = background
             messages.append({"role": "assistant", "content": msg.get("content", ""), "tool_calls": calls})
             for c in calls:
                 fn = c["function"]

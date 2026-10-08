@@ -69,6 +69,12 @@ def js_errors(html: str) -> str:
     return "" if r.returncode == 0 else (r.stderr or r.stdout).replace(f.name, "script.js")[-1500:]
 
 
+GEMINI_BACKUP_MODELS = ("gemini-2.5-flash", "gemini-flash-lite-latest")
+GEMINI_ERRORS = {400: "ключ чи запит не підходить", 401: "ключ не підходить", 403: "ключ не має доступу",
+                 404: "такої моделі немає", 429: "вичерпано безкоштовний ліміт", 500: "збій у Google",
+                 503: "сервер Google перевантажений", 504: "Google не встиг відповісти"}
+
+
 def pages_dir() -> Path:
     d = Path.home() / "Documents" / "Хомі" / "сторінки"
     d.mkdir(parents=True, exist_ok=True)
@@ -104,6 +110,8 @@ class PageBuilder:
         self.lines = 0
         self._logged = 0.0
         self.stage = "пишу"
+        self.notify = None                  # сказати вголос посеред роботи («Gemini недоступний, пишу сама»)
+        self.author = ""
         self.rounds = int(cfg.get("pages", {}).get("review_rounds", 2))
 
     @property
@@ -113,20 +121,55 @@ class PageBuilder:
     def _write(self, prompt: str) -> str | None:
         """Код пише Gemini (якщо є ключ — сильніший програміст), інакше або при збої — своя Gemma."""
         if self.remote:
-            try:
-                html = self._write_gemini(prompt)
-                if html:
-                    return html
-                self.log("🛠", "Gemini повернув неповний код — пишу сама")
-            except Exception as e:  # noqa: BLE001 — немає інтернету, ліміт, змінилась модель…
-                self.log("🛠", f"Gemini недоступний ({str(e)[:150]}) — пишу сама")
+            html, why = self._gemini_with_retries(prompt)
+            if html:
+                self.author = "Gemini"
+                return html
+            self.log("🛠", f"Gemini не написав ({why}) — пишу сама")
+            if self.notify:
+                self.notify(f"Gemini зараз недоступний ({why}), тож пишу сама. Це довше, хвилини дві-три, "
+                            "і поки пишу, відповідатиму повільніше.")
+        self.author = "я"
+        self.stage = "пишу сама"
         return self._write_local(prompt)
 
-    def _write_gemini(self, prompt: str) -> str | None:
+    def _gemini_with_retries(self, prompt: str) -> tuple[str | None, str]:
+        """503/500 у Gemini — «сервер перевантажений», зазвичай на секунди: пробуємо ще, потім іншу модель."""
+        c = self.cfg["coder"]
+        models = list(dict.fromkeys([c.get("model", "gemini-flash-latest"), *GEMINI_BACKUP_MODELS]))
+        why = "невідома помилка"
+        for model in models:
+            for attempt, pause in enumerate((0, 4, 10)):
+                if pause:
+                    self.stage = f"чекаю Gemini ({attempt + 1}/3)"
+                    self._progress()
+                    time.sleep(pause)
+                try:
+                    self.stage = "Gemini пише"
+                    html = self._write_gemini(prompt, model)
+                    if html:
+                        if model != models[0]:
+                            self.log("🛠", f"написав запасний {model}")
+                        return html, ""
+                    why = "код вийшов неповний"
+                    break                                   # неповний — повтор тієї ж моделі не допоможе
+                except requests.HTTPError as e:
+                    code = e.response.status_code if e.response is not None else 0
+                    why = GEMINI_ERRORS.get(code, f"помилка {code}")
+                    self.log("🛠", f"Gemini {model}: {why}")
+                    if code in (400, 401, 403):
+                        return None, why                    # ключ — інші моделі не врятують
+                    if code in (404, 429):
+                        break                               # немає моделі / вичерпано ліміт — пробуємо іншу
+                except requests.RequestException as e:
+                    why = "немає зв'язку з Google"
+                    self.log("🛠", f"Gemini {model}: {str(e)[:120]}")
+        return None, why
+
+    def _write_gemini(self, prompt: str, model: str) -> str | None:
         """Google Gemini API (офіційний, безкоштовний ліміт). Потоком — щоб бачити прогрес."""
         import json
         c = self.cfg["coder"]
-        model = c.get("model", "gemini-flash-latest")
         parts: list[str] = []
         last = 0.0
         with requests.post(
@@ -134,8 +177,6 @@ class PageBuilder:
                 headers={"x-goog-api-key": c["gemini_key"]}, timeout=600, stream=True,
                 json={"contents": [{"role": "user", "parts": [{"text": prompt}]}],
                       "generationConfig": {"temperature": 0.4}}) as r:
-            if r.status_code == 429:
-                raise RuntimeError("вичерпано безкоштовний ліміт на сьогодні")
             r.raise_for_status()
             for line in r.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data:"):
@@ -179,7 +220,9 @@ class PageBuilder:
         if not self.busy:
             return "Зараз нічого не пишу."
         m, sec = divmod(int(time.time() - self.started), 60)
-        what = ("Gemini пише код" if self.remote else "пишу код") if self.stage == "пишу" else f"{self.stage} (шукаю й виправляю помилки)"
+        what = {"пишу": "Gemini пише код" if self.remote else "пишу код", "пишу сама": "пишу сама (Gemini недоступний)"
+                }.get(self.stage) or (f"{self.stage} (шукаю й виправляю помилки)" if self.stage.startswith("перевір")
+                                      else self.stage)
         return f"Сторінка «{self.busy}»: {what}, минуло {m}:{sec:02d}, зараз {self.lines} рядків."
 
     def _progress(self, final: str | None = None):
@@ -233,7 +276,7 @@ class PageBuilder:
         if self.busy:
             return f"Я ще пишу сторінку «{self.busy}». Скажу, щойно закінчу."
         self.busy, self.started, self.lines, self._logged = title, time.time(), 0, time.time()
-        self.stage = "пишу"
+        self.stage, self.notify, self.author = "пишу", done, ""
         who = "Gemini пише" if self.remote else "пишу сама"
         self.log("🛠", f"«{title}»: {who}" + (f", перевірка ×{rounds}" if rounds and not self.remote else ""))
 
@@ -250,8 +293,9 @@ class PageBuilder:
                     path.write_text(html, encoding="utf-8")
                 self.last = path
                 webbrowser.open(path.as_uri())
-                self.log("🛠", f"сторінка «{title}» готова за {time.time() - t:.0f} с: {path}")
-                done(f"Готово, сторінка «{title}» відкрита в браузері.")
+                self.log("🛠", f"сторінка «{title}» готова за {time.time() - t:.0f} с ({self.author}): {path}")
+                by = "Писав Gemini." if self.author == "Gemini" else ("Писала сама." if self.remote else "")
+                done(f"Готово, сторінка «{title}» відкрита в браузері. {by}".strip())
             except Exception as e:  # noqa: BLE001
                 self.log("🛠", f"не вийшло: {e}")
                 done(f"Не вийшло написати сторінку «{title}».")
@@ -260,8 +304,9 @@ class PageBuilder:
                 self._progress(final="")
         threading.Thread(target=run, daemon=True).start()
         if self.remote:
-            return (f"Передала завдання «{title}» програмісту Gemini. Це займе приблизно хвилину; "
-                    "коли файл буде готовий — сама скажу й відкрию.")
+            return (f"Передала завдання «{title}» програмісту Gemini; коли файл буде готовий — сама скажу й відкрию. "
+                    "(Службове: скажи лише це одним реченням. Не обіцяй «хвилинку», перевірок чи подробиць — "
+                    "якщо щось зміниться, я сама повідомлю.)")
         how = "хвилин 5–10, бо ще перевірю й виправлю помилки" if rounds else "хвилину-дві"
         return (f"Почала писати сторінку «{title}». Це займе {how}; поки пишу, відповідатиму повільніше. "
                 "Коли буде готово — сама скажу й відкрию.")

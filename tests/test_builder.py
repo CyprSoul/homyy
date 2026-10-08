@@ -95,7 +95,38 @@ def test_gemini_writes_and_falls_back(monkeypatch):
 
     def broken(url, **k):
         raise builder.requests.ConnectionError("немає інтернету")
+    monkeypatch.setattr(builder.time, "sleep", lambda s: None)
+    told = []
+    b.notify = told.append
     monkeypatch.setattr(builder.requests, "post", broken)
     monkeypatch.setattr(b, "_write_local", lambda prompt: "<!DOCTYPE html><html>Gemma</html>")
     assert "Gemma" in b._write("x")                                  # без інтернету — пише сама
+    assert told and "пишу сама" in told[0] and "зв'язку" in told[0]  # і чесно каже про це вголос
     assert "Gemini" in b.status()
+
+
+def test_gemini_overloaded_retries_then_succeeds(monkeypatch):
+    import json
+    b = builder.PageBuilder({"ollama": {"url": "http://x", "model": "m"}, "coder": {"gemini_key": "k"}},
+                            log=lambda *a: None)
+    b.busy, b.started = "сайт", 0
+    monkeypatch.setattr(builder.time, "sleep", lambda s: None)
+    calls = []
+    ok = ["data: " + json.dumps({"candidates": [{"content": {"parts": [{"text": "<!DOCTYPE html><html>ok</html>"}]}}]})]
+
+    class R:
+        def __init__(self, code): self.status_code = code
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def raise_for_status(self):
+            if self.status_code != 200:
+                resp = type("Resp", (), {"status_code": self.status_code})()
+                raise builder.requests.HTTPError(response=resp)
+        def iter_lines(self, decode_unicode=False): return iter(ok)
+
+    def post(url, **k):
+        calls.append(url)
+        return R(503 if len(calls) < 3 else 200)                     # двічі «перевантажений», потім пише
+    monkeypatch.setattr(builder.requests, "post", post)
+    monkeypatch.setattr(b, "_write_local", lambda p: (_ for _ in ()).throw(AssertionError("не мала писати сама")))
+    assert b._write("x") == "<!DOCTYPE html><html>ok</html>" and len(calls) == 3 and b.author == "Gemini"
