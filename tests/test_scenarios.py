@@ -314,7 +314,7 @@ def test_claims_without_tool_twice_becomes_honest(monkeypatch, tmp_path):
                          monkeypatch, tmp_path)
     assert not calls
     assert not any("почала" in x or "Вибач" in x for x in said)
-    assert any("нічого не запускала" in x for x in said)
+    assert any("Не зрозуміла" in x for x in said)
 
 
 def test_page_retry_intent():
@@ -346,3 +346,22 @@ def test_background_status_is_told_to_gemma(tmp_path):
     assert "1:05" in t.background_status()
     b.busy = None
     assert "НЕ пишеш" in t.background_status()
+
+
+def test_open_page_intent():
+    from agent.text import open_page_intent
+    assert open_page_intent("Відкриє його в браузері.", page_recent=True)
+    assert open_page_intent("Відкрий сторінку тренувань", page_recent=False)
+    assert open_page_intent("Хомі, покажи сайт", page_recent=False)
+    assert not open_page_intent("Відкрий його в браузері", page_recent=False)
+    assert not open_page_intent("Відкрий Steam", page_recent=True)
+    assert not open_page_intent("Відкрий", page_recent=True)
+
+
+def test_after_check_keeps_normal_sentence(monkeypatch, tmp_path):
+    monkeypatch.setattr("agent.tools.Tools.call", lambda self, n, a: "")
+    said, asked, _ = run([("hear", "Відкрий той сайт")],
+                         [("сайт", "Відкриваю сайт."),
+                          ("__after__", "Вибач, я не викликала інструмент. Я не знаю адреси цього сайту.")],
+                         monkeypatch, tmp_path)
+    assert any("не знаю адреси" in x for x in said) and not any("інструмент" in x for x in said)

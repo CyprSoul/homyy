@@ -274,7 +274,7 @@ class Tools(PcTools):
         if b.busy:
             return f" Фонова робота (це правда, кажи лише це, без вигадок): {b.status()}"
         return (" Зараз ти НЕ пишеш жодної сторінки й нічого не робиш у фоні — не кажи, що щось пишеш чи шліфуєш."
-                + (f" Остання сторінка «{b.last.stem}» готова." if b.last else ""))
+                + (f" Остання сторінка «{b.last.stem}» готова (відкрити її — інструмент open_page)." if b.last else ""))
 
     def last_page_task(self) -> dict | None:
         from .builder import PageBuilder

@@ -422,9 +422,11 @@ class Brain:
                 continue
             if not calls and nudged and not background and (
                     (not used_tools and claims_action(content)) or promises_more(content) or _META.search(content)):
-                # і після примітки каже «вже роблю», а інструмента не викликала — нічого не відбувається.
-                # Краще чесно, ніж «зачекай» і тиша.
-                honest = "Поправлюся: зараз я нічого не запускала. Якщо треба щось зробити — скажи, що саме."
+                # і після примітки каже «вже роблю» чи розмовляє про «інструмент/кнопку», а нічого не запустила.
+                # Лишаємо лише нормальні речення («Я не знаю адреси сайту»); решту — чесним «не зрозуміла».
+                keep = [x for x in re.split(r"(?<=[.!?…])\s+", content.strip()) if x and not (
+                    _META.search(x) or claims_action(x) or promises_more(x))]
+                honest = " ".join(keep) if keep else "Не зрозуміла, що саме зробити. Скажи, будь ласка, ще раз."
                 if stream:
                     stream.buf, stream.held, stream.hold = "", [], False
                     stream.spoken.append(honest)

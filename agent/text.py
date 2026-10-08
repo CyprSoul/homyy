@@ -393,7 +393,10 @@ def folder_intent(transcript: str):
 
 _FIRST_PERSON = {"пошукаю": "Пошукай", "знайду": "Знайди", "відкрию": "Відкрий", "увімкну": "Увімкни",
                  "покажу": "Покажи", "закрию": "Закрий", "нагадаю": "Нагадай", "розкажу": "Розкажи",
-                 "запиши": "Запиши", "згорну": "Згорни", "перекладу": "Переклади"}
+                 "запиши": "Запиши", "згорну": "Згорни", "перекладу": "Переклади",
+                 # «Відкриє його…», «Покаже…» — розпізнавач з'їдає «й» у наказі
+                 "відкриє": "Відкрий", "відкриєш": "Відкрий", "покаже": "Покажи", "знайде": "Знайди",
+                 "увімкне": "Увімкни", "закриє": "Закрий"}
 
 
 def fix_command(transcript: str) -> str:
@@ -473,3 +476,20 @@ def page_retry_intent(transcript: str, page_recent: bool) -> bool:
     if not _RETRY.search(t):
         return False
     return bool(_PAGE_WORDS.search(t)) or page_recent
+
+
+_OPEN_PAGE = re.compile(r"^(?:відкрий|покажи)(?: мені)? (?:(?:її|його|сторінку|сайт|трекер|ту сторінку|цю сторінку|"
+                        r"мою сторінку|сторінку з тренуваннями|сторінку тренувань)\b.*?)?(?: (?:в|у) браузері)?$")
+
+
+def open_page_intent(transcript: str, page_recent: bool) -> bool:
+    """«Відкрий її в браузері», «покажи сторінку» — відкрити останню написану сторінку (без Gemma).
+    «Відкрий його/її» — лише коли сторінку робили нещодавно; «відкрий Steam» сюди не потрапляє."""
+    t = " ".join(re.sub(r"[^\w' ]", " ", fix_command(transcript).lower()).split())
+    rest = split_wake(t)
+    t = (rest if rest else t).removesuffix(" будь ласка").strip()
+    if not _OPEN_PAGE.match(t) or t in ("відкрий", "покажи"):
+        return False
+    if re.search(r"(сторінк|сайт|трекер)", t):
+        return True
+    return page_recent and bool(re.search(r"\b(її|його)\b", t))

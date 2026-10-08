@@ -19,7 +19,8 @@ from .config import AGENT_DIR, load_config, ollama_options
 from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
-                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command, is_repeat, page_retry_intent)
+                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command, is_repeat, page_retry_intent,
+                   open_page_intent)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -578,6 +579,11 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 log("інструмент", f"click_on_screen {{'text': '{target}'}} (швидка команда)")
                 brain.tools.last_user_text = text
                 answer = brain.direct(text, "click_on_screen", {"text": target})
+            elif (page_task := brain.tools.last_page_task()) and open_page_intent(
+                    text, time.time() - page_task.get("t", 0) < 3 * 3600):
+                # «Відкрий її в браузері» — остання сторінка, одразу (Gemma тут казала «дай адресу»)
+                log("інструмент", "open_page {} (швидка команда)")
+                answer = brain.direct(text, "open_page", {})
             elif (page_task := brain.tools.last_page_task()) and page_retry_intent(
                     text, time.time() - page_task.get("t", 0) < 3600):
                 # «Спробуй ще раз написати сторінку» — те саме завдання ще раз, без Gemma (вона тут вигадує «вже пишу»)
