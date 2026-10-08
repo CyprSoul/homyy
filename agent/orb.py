@@ -27,7 +27,12 @@ W, H = 170, 188
 R = 40            # радіус сфери
 
 
-def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking", tint: bool = False):
+POS_FILE = Path(__file__).resolve().parent / "orb_pos.json"
+PASSIVE_OPACITY = 0.8          # «не заважає»: трохи прозора, кліки йдуть крізь неї
+
+
+def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking", tint: bool = False,
+         click_through: bool = True):
     # Ctrl+C у вікні Хомі долітає й до процесу сфери і рве малювання посеред кадру
     # (звідси лавина «QPainter…»). Сферу закриває головний процес — тут Ctrl+C ігноруємо.
     import signal
@@ -63,6 +68,8 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
                 self.move(geo.left() + 16, geo.top() + 16)
             else:
                 self.move(geo.right() - W - 16, geo.bottom() - H - 8)
+            self._restore_pos()
+            self._ct = None                     # кліки крізь сферу: None — ще не вирішено
             self.state = "boot"
             self.color = list(STATES["boot"][0])
             self.speed, self.wobble = STATES["boot"][1], STATES["boot"][2]
@@ -119,6 +126,7 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
             if game == getattr(self, "_game_look", False):
                 return
             self._game_look = game
+            self._ct = None                      # після гри «не заважати» вмикається заново
             self.setWindowOpacity(0.6 if game else 1.0)
             self.setWindowFlag(Qt.WindowTransparentForInput, game)
             self.timer.setInterval(100 if game else 16)
@@ -136,6 +144,9 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
                 if parent is not None and not parent.is_alive():
                     QApplication.quit()
                     return
+            if now_ - getattr(self, "_ct_check", 0.0) > 0.05:
+                self._ct_check = now_
+                self._update_click_through()
             try:
                 while True:
                     kind, value = cmd_q.get_nowait()
@@ -319,6 +330,49 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
                 p.setPen(QColor(245, 245, 250))
                 p.drawText(rect, Qt.AlignHCenter | Qt.AlignTop, caption)
 
+        # ---- місце на екрані й «не заважати» -----------------------------
+        def _restore_pos(self):
+            """Сфера стає туди, куди ти її переніс минулого разу (якщо той екран ще є)."""
+            import json
+            try:
+                x, y = json.loads(POS_FILE.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                return
+            from PySide6.QtCore import QPoint
+            for screen in QApplication.screens():
+                if screen.availableGeometry().contains(QPoint(x + W // 2, y + H // 2)):
+                    self.move(x, y)
+                    return
+
+        def _save_pos(self):
+            import json
+            try:
+                POS_FILE.write_text(json.dumps([self.x(), self.y()]), encoding="utf-8")
+            except OSError:
+                pass
+
+        def _set_click_through(self, on: bool):
+            """Кліки йдуть крізь сферу у вікна під нею (Windows). Затиснутий Ctrl — сфера знову «ловить» мишу."""
+            import sys
+            if on == self._ct or sys.platform != "win32":
+                return
+            import ctypes
+            u32 = ctypes.windll.user32
+            hwnd = int(self.winId())
+            style_ = u32.GetWindowLongW(hwnd, -20)                       # GWL_EXSTYLE
+            style_ = (style_ | 0x20 | 0x80000) if on else (style_ & ~0x20)  # WS_EX_TRANSPARENT | WS_EX_LAYERED
+            u32.SetWindowLongW(hwnd, -20, style_)
+            self._ct = on
+            self.setWindowOpacity(PASSIVE_OPACITY if on else 1.0)
+
+        def _update_click_through(self):
+            import sys
+            if not click_through or sys.platform != "win32" or getattr(self, "_game_look", False):
+                return
+            import ctypes
+            ctrl = bool(ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000)   # VK_CONTROL
+            self._set_click_through(not ctrl and self.drag is None)
+
         # ---- миша -----------------------------------------------------
         def mousePressEvent(self, e):
             if e.button() == Qt.LeftButton:
@@ -335,6 +389,8 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
         def mouseReleaseEvent(self, e):
             if e.button() == Qt.LeftButton and self.drag and not self.drag[2]:
                 evt_q.put("click")
+            elif self.drag and self.drag[2]:
+                self._save_pos()                 # перенесли — запам'ятовуємо місце
             self.drag = None
 
         def contextMenuEvent(self, e):
@@ -382,10 +438,12 @@ def _run(cmd_q: mp.Queue, evt_q: mp.Queue, position: str, style: str = "thinking
 class OrbClient:
     """Те, що бачить голосова Хомі: set_state / set_level / події кліку."""
 
-    def __init__(self, position: str = "bottom-right", style: str = "thinking", tint: bool = False):
+    def __init__(self, position: str = "bottom-right", style: str = "thinking", tint: bool = False,
+                 click_through: bool = True):
         ctx = mp.get_context("spawn")
         self.cmd_q, self.evt_q = ctx.Queue(), ctx.Queue()
-        self.proc = ctx.Process(target=_run, args=(self.cmd_q, self.evt_q, position, style, tint), daemon=True)
+        self.proc = ctx.Process(target=_run, args=(self.cmd_q, self.evt_q, position, style, tint, click_through),
+                                daemon=True)
         self.proc.start()
 
     def set_state(self, state: str):

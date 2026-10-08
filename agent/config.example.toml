@@ -85,6 +85,7 @@ widget = true            # кулька-віджет у кутку екрана
 position = "bottom-right"  # або "top-left"
 orb_style = "thinking"    # "thinking" — сфера з точок (thinking-orbs); "classic" — стара жива сфера
 orb_tint = false          # true — точки з легким відтінком кольору стану (на сайті — просто світлі)
+click_through = true      # сфера не заважає: кліки йдуть крізь неї. Ctrl + мишка — перенести/клікнути/меню
 greet = true             # привітатися голосом після запуску
 
 [game]

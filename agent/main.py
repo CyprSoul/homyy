@@ -947,7 +947,8 @@ def main():
         from .orb import OrbClient
         orb = OrbClient(position=cfg.get("ui", {}).get("position", "bottom-right"),
                         style=cfg.get("ui", {}).get("orb_style", "thinking"),
-                        tint=bool(cfg.get("ui", {}).get("orb_tint", False)))
+                        tint=bool(cfg.get("ui", {}).get("orb_tint", False)),
+                        click_through=bool(cfg.get("ui", {}).get("click_through", True)))
     except Exception as e:   # немає Qt — працюємо без сфери
         log("!", f"Сфера не запустилася ({e}), працюю без неї.")
         voice_loop(cfg, wake_click)

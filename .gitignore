@@ -13,3 +13,4 @@ agent/skills.json
 agent/lessons.json
 agent/greetings.json
 agent/diary.jsonl
+agent/orb_pos.json
