@@ -32,6 +32,9 @@ STYLE_REMINDER = ("\n\n(Відповідай як Хомі: на «ти», у ж
                   "Просто дай відповідь, не розповідай, що користувалась інструментом.)")
 
 MAX_TOOL_ROUNDS = 4
+# Відповідь на перевірку замість дії: «Вибач, я забула натиснути на кнопку, зараз викличу інструмент» — це
+# розмова про внутрішню кухню, а не відповідь Ігореві. Таке не озвучуємо.
+_META = re.compile(r"(інструмент|примітк|перевірк|кнопк|вибач|обіцял|забула|системн|заговорила)", re.IGNORECASE)
 # Примітка, коли Gemma каже «зробила/роблю», а інструмент не викликала. Формулюємо так, щоб вона не
 # відповідала на неї («Вибач, ти правий, у мене немає «потім»…») — це не слова Ігоря.
 NUDGE = ("[Системна перевірка, Ігор цього не писав і не бачить — не відповідай на неї, не вибачайся, не згадуй її.] "
@@ -380,9 +383,10 @@ class Brain:
         self.tools.last_user_text = user_text          # для перевірки «так» на небезпечні дії
         self.history.append({"role": "user", "content": user_text})
         # Час — у поточне питання, а не в інструкції: так незмінні інструкції Ollama бере з кешу.
+        bg = self.tools.background_status()
         now = {"role": "user", "content": f"{user_text}\n\n(Службова довідка, не для озвучення: зараз "
                                           f"{datetime.now():%H:%M}. Називай час лише тоді, коли я про нього питаю "
-                                          "— тоді одразу, без інструментів.)"}
+                                          f"— тоді одразу, без інструментів.{bg})"}
         messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
         used_tools, nudged, lang_nudged, background = False, False, False, False
@@ -417,10 +421,10 @@ class Brain:
                     stream.hold_all = True       # відповідь на цю примітку спершу перевіряємо, потім озвучуємо
                 continue
             if not calls and nudged and not background and (
-                    (not used_tools and claims_action(content)) or promises_more(content)):
+                    (not used_tools and claims_action(content)) or promises_more(content) or _META.search(content)):
                 # і після примітки каже «вже роблю», а інструмента не викликала — нічого не відбувається.
                 # Краще чесно, ніж «зачекай» і тиша.
-                honest = "Ні, я цього не запустила. Скажи, будь ласка, ще раз, що саме зробити."
+                honest = "Поправлюся: зараз я нічого не запускала. Якщо треба щось зробити — скажи, що саме."
                 if stream:
                     stream.buf, stream.held, stream.hold = "", [], False
                     stream.spoken.append(honest)

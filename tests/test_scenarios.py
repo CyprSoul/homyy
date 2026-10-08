@@ -314,7 +314,7 @@ def test_claims_without_tool_twice_becomes_honest(monkeypatch, tmp_path):
                          monkeypatch, tmp_path)
     assert not calls
     assert not any("почала" in x or "Вибач" in x for x in said)
-    assert any("не запустила" in x for x in said)
+    assert any("нічого не запускала" in x for x in said)
 
 
 def test_page_retry_intent():
@@ -324,3 +324,25 @@ def test_page_retry_intent():
     assert page_retry_intent("Спробуй ще раз", page_recent=True)
     assert not page_retry_intent("Спробуй ще раз", page_recent=False)          # без контексту — не сторінка
     assert not page_retry_intent("Напиши сторінку для тренувань", page_recent=True)
+
+
+def test_reply_to_check_is_not_spoken(monkeypatch, tmp_path):
+    """Після перевірки Gemma каже «Вибач, забула натиснути на кнопку, зараз викличу інструмент» — це не для Ігоря."""
+    monkeypatch.setattr("agent.tools.Tools.call", lambda self, n, a: "")
+    said, asked, _ = run([("hear", "То як справи?")],
+                         [("справи", "Все чудово! Я якраз почала писати код для трекера."),
+                          ("__after__", "Вибач, Ігорю, я заговорила зубами і забула натиснути на кнопку. "
+                                        "Зараз викличу інструмент.")], monkeypatch, tmp_path)
+    assert not any("кнопк" in x or "інструмент" in x for x in said)
+
+
+def test_background_status_is_told_to_gemma(tmp_path):
+    from agent.tools import Tools
+    t = Tools({"apps": {}})
+    assert t.background_status() == ""
+    b = type("B", (), {"busy": "тренування", "status": lambda self: "Сторінка «тренування»: пишу код, минуло 1:05",
+                       "last": None})()
+    t._page_builder = b
+    assert "1:05" in t.background_status()
+    b.busy = None
+    assert "НЕ пишеш" in t.background_status()

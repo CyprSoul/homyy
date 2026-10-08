@@ -266,6 +266,16 @@ class Tools(PcTools):
         if self.on_reminder:
             self.on_reminder(text)
 
+    def background_status(self) -> str:
+        """Що Хомі зараз робить у фоні — щоб на «як справи?» не вигадувала «шліфую дизайн»."""
+        b = getattr(self, "_page_builder", None)
+        if b is None:
+            return ""
+        if b.busy:
+            return f" Фонова робота (це правда, кажи лише це, без вигадок): {b.status()}"
+        return (" Зараз ти НЕ пишеш жодної сторінки й нічого не робиш у фоні — не кажи, що щось пишеш чи шліфуєш."
+                + (f" Остання сторінка «{b.last.stem}» готова." if b.last else ""))
+
     def last_page_task(self) -> dict | None:
         from .builder import PageBuilder
         return PageBuilder.last_task()
