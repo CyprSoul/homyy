@@ -128,3 +128,23 @@ def test_long_story_is_not_cut_at_record_limit(monkeypatch):
     cfg = {"wake": {"turn_max_seconds": 30}}
     text, _, _ = main._hear_smart(cfg, A(), 8, None, lambda pcm: f"{len(pcm) // 16000} с")
     assert text == "65 с" and not chunks
+
+
+def test_quiet_noise_is_not_recognized(monkeypatch):
+    """Тихий шум, на який спрацював детектор мови, не йде в розпізнавач (там він стає «Так.»)."""
+    import numpy as np
+    from agent import main
+    heard = []
+
+    class A:
+        last_turn, last_end = (0.98, 300), "turn"
+
+        def listen(self, **k):
+            return np.zeros(16000, dtype=np.int16), 0.5
+
+        def loud_enough(self, pcm, factor=4.0):
+            return False
+    monkeypatch.setitem(main.TURN, "model", type("M", (), {"probability": lambda self, pcm: 0.9})())
+    monkeypatch.setattr(main.ui, "set_state", lambda *a: None)
+    text, _, _ = main._hear_smart({"wake": {}}, A(), 8, None, lambda pcm: heard.append(1) or "Так.")
+    assert text == "" and not heard

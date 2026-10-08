@@ -67,3 +67,12 @@ def test_parakeet_short_latin_is_noise(monkeypatch):
     s, _ = make(monkeypatch, "Uh", engine="parakeet")
     s.backup = FakeOnnx("Дякую.")          # Canary на шумі вигадує «Дякую» — навіть не питаємо
     assert s.command(np.zeros(1600, dtype=np.int16)) == ""
+
+
+def test_parakeet_short_non_ukrainian_is_noise_but_da_stays(monkeypatch):
+    s, _ = make(monkeypatch, "Тык", engine="parakeet")
+    s.backup = FakeOnnx("Так.")            # на шумі Canary вигадує «Так.» — не питаємо його на коротке
+    assert s.command(np.zeros(1600, dtype=np.int16)) == ""
+    s2, _ = make(monkeypatch, "Да.", engine="parakeet")
+    s2.backup = FakeOnnx("Так.")
+    assert s2.command(np.zeros(1600, dtype=np.int16)) in ("Да.", "Так.")   # коротке «да» не губимо

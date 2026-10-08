@@ -260,6 +260,12 @@ def _hear_smart(cfg, audio, timeout, first, recognize):
             break
         pcm = np.concatenate([pcm, more[0]])
     t_said = time.time()
+    # Тихий шум біля порогу (вентилятор, клацання, луна) — не мова. На такому розпізнавач «чує» слова
+    # («Так.»), і Хомі відповідає, хоча ти мовчиш. Тому спершу — гучність, потім розпізнавання.
+    if hasattr(audio, "loud_enough") and not audio.loud_enough(pcm, factor=3.0):
+        if len(pcm) > 1.5 * 16000:          # довге й тихе — може, це ти далеко від мікрофона: видно в журналі
+            log("🔇", f"тихо, схоже на шум ({len(pcm) / 16000:.1f} с) — пропускаю")
+        return "", t_said, 0.0
     end = getattr(audio, "last_end", None)
     if end == "silence":
         log("⏸", f"договорив: {longest} мс тиші")

@@ -162,6 +162,11 @@ class STT:
                     return text
                 if len(text.split()) <= 2 and not any("а" <= c <= "ї" for c in text.lower()):
                     return ""                # «Uh», «Hm» — шум, а не мова
+                if len(text.split()) <= 2:
+                    # «да», «ок» — лишаємо; інше коротке не українською — шум. Canary на такому не питаємо:
+                    # на шумі він вигадує «Так.», і Хомі відповідає, хоча ти мовчиш.
+                    from .text import is_no, is_yes
+                    return text if (is_yes(text) or is_no(text)) else ""
                 self.fallbacks += 1          # вийшло не українською — перепитуємо Canary, потім Whisper
                 if self.backup is not None:
                     alt = str(self.backup.recognize(wav, sample_rate=16000, **self.backup_opts)).strip()
