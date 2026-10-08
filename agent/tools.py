@@ -266,6 +266,10 @@ class Tools(PcTools):
         if self.on_reminder:
             self.on_reminder(text)
 
+    def last_page_task(self) -> dict | None:
+        from .builder import PageBuilder
+        return PageBuilder.last_task()
+
     def _t_make_page(self, name: str, request: str, quick: bool = False) -> str:
         return self._builder().make(name, request, self._page_done, quick=bool(quick))
 

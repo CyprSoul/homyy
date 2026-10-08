@@ -75,8 +75,11 @@ GEMINI_ERRORS = {400: "ключ чи запит не підходить", 401: "
                  503: "сервер Google перевантажений", 504: "Google не встиг відповісти"}
 
 
+PAGES_DIR = Path.home() / "Documents" / "Хомі" / "сторінки"
+
+
 def pages_dir() -> Path:
-    d = Path.home() / "Documents" / "Хомі" / "сторінки"
+    d = PAGES_DIR
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -311,7 +314,22 @@ class PageBuilder:
         return (f"Почала писати сторінку «{title}». Це займе {how}; поки пишу, відповідатиму повільніше. "
                 "Коли буде готово — сама скажу й відкрию.")
 
+    @staticmethod
+    def last_task() -> dict | None:
+        """Останнє завдання на сторінку (для «спробуй ще раз», «напиши заново») — переживає перезапуск."""
+        import json
+        try:
+            return json.loads((PAGES_DIR / ".last-task.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
     def make(self, name: str, request: str, done, quick: bool = False) -> str:
+        import json
+        try:
+            (pages_dir() / ".last-task.json").write_text(
+                json.dumps({"name": name, "request": request, "t": time.time()}, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
         path = pages_dir() / f"{slug(name)}.html"
         return self.start(name, PAGE_PROMPT.format(request=request), path, done,
                           request=request, rounds=0 if quick else self.rounds)

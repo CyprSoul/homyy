@@ -19,7 +19,7 @@ from .config import AGENT_DIR, load_config, ollama_options
 from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
-                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command, is_repeat)
+                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command, is_repeat, page_retry_intent)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -572,6 +572,11 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 log("інструмент", f"click_on_screen {{'text': '{target}'}} (швидка команда)")
                 brain.tools.last_user_text = text
                 answer = brain.direct(text, "click_on_screen", {"text": target})
+            elif (page_task := brain.tools.last_page_task()) and page_retry_intent(
+                    text, time.time() - page_task.get("t", 0) < 3600):
+                # «Спробуй ще раз написати сторінку» — те саме завдання ще раз, без Gemma (вона тут вигадує «вже пишу»)
+                log("інструмент", f"make_page {{'name': '{page_task['name']}'}} (ще раз, швидка команда)")
+                answer = brain.direct(text, "make_page", {"name": page_task["name"], "request": page_task["request"]})
             elif re.match(r"^(?:хомі,?\s*)?(?:забудь|розучись),? як", text.strip(), re.I):
                 ok = SKILLS.forget(text)
                 answer = brain.direct_reply(text, "Добре, забула цю навичку." if ok else "Такої навички в мене немає.")

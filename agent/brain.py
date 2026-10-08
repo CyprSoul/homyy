@@ -32,6 +32,12 @@ STYLE_REMINDER = ("\n\n(Відповідай як Хомі: на «ти», у ж
                   "Просто дай відповідь, не розповідай, що користувалась інструментом.)")
 
 MAX_TOOL_ROUNDS = 4
+# Примітка, коли Gemma каже «зробила/роблю», а інструмент не викликала. Формулюємо так, щоб вона не
+# відповідала на неї («Вибач, ти правий, у мене немає «потім»…») — це не слова Ігоря.
+NUDGE = ("[Системна перевірка, Ігор цього не писав і не бачить — не відповідай на неї, не вибачайся, не згадуй її.] "
+         "Твоя відповідь каже, що ти щось робиш, але жодного інструмента ти не викликала, тож нічого не відбудеться. "
+         "Виклич потрібний інструмент просто зараз. Якщо такого інструмента немає — одним реченням чесно скажи, "
+         "що цього не вмієш.")
 # Роботу ці інструменти доробляють у фоні й самі кажуть «готово» — «скажу, коли буде» тут правда, не порожня обіцянка
 BACKGROUND_TOOLS = {"make_page", "edit_page", "set_reminder"}
 DEEP = re.compile(r"(подумай|поміркуй|подумати|обміркуй|розміркуй|проаналізуй|детально розбери|"
@@ -88,6 +94,7 @@ class SentenceStream:
         self.hold = False
         self.used_tools = False
         self.background = False
+        self.hold_all = False
 
     def feed(self, piece: str):
         self.buf += piece
@@ -105,7 +112,7 @@ class SentenceStream:
                 and not wants_other_language(self.user_text))
 
     def _sentence(self, sent: str):
-        if self.hold or self._risky(sent):
+        if self.hold or self.hold_all or self._risky(sent):
             self.hold = True
             self.held.append(sent)
             return
@@ -117,11 +124,13 @@ class SentenceStream:
     def new_round(self, used_tools: bool):
         """Нова відповідь Gemma (після інструментів чи прохання виправитись)."""
         self.buf, self.held, self.hold, self.used_tools = "", [], False, used_tools
+        if used_tools:
+            self.hold_all = False
 
     def flush(self):
         """Кінець відповіді: доозвучити хвіст (і притримане, якщо перевірка все ж пройшла)."""
         rest = self.held + ([self.buf.strip()] if self.buf.strip() else [])
-        self.buf, self.held, self.hold = "", [], False
+        self.buf, self.held, self.hold, self.hold_all = "", [], False, False
         for sent in rest:
             sent = self.brain.polish(self.user_text, sent)
             if sent:
@@ -268,7 +277,7 @@ class Brain:
             self.history = []
         self.last_turn = time.time()
         self.stats = []
-        answer = self.tools.call(tool, args)
+        answer = re.sub(r"\s*\(Службове:.*?\)\s*$", "", self.tools.call(tool, args), flags=re.S)
         self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
         self.last_exchange = (user_text, answer)
         return answer
@@ -403,10 +412,25 @@ class Brain:
                 # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
                 nudged = True
                 messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": "(Службове: після твоєї відповіді ти вже нічого не "
-                                 "зробиш сама — у тебе немає «потім». Зроби обіцяне ЗАРАЗ через інструменти й дай "
-                                 "результат. Якщо жоден інструмент цього не вміє — чесно скажи, що не вмієш.)"})
+                messages.append({"role": "user", "content": NUDGE})
+                if stream:
+                    stream.hold_all = True       # відповідь на цю примітку спершу перевіряємо, потім озвучуємо
                 continue
+            if not calls and nudged and not background and (
+                    (not used_tools and claims_action(content)) or promises_more(content)):
+                # і після примітки каже «вже роблю», а інструмента не викликала — нічого не відбувається.
+                # Краще чесно, ніж «зачекай» і тиша.
+                honest = "Ні, я цього не запустила. Скажи, будь ласка, ще раз, що саме зробити."
+                if stream:
+                    stream.buf, stream.held, stream.hold = "", [], False
+                    stream.spoken.append(honest)
+                    stream.emit(honest)
+                    answer = " ".join(stream.spoken)
+                else:
+                    answer = honest
+                self.history.append({"role": "assistant", "content": honest})
+                self.last_exchange = (user_text, answer)
+                return answer
             if not calls:
                 text_ = (msg.get("content") or "").strip()
                 if getattr(self, "cut_short", False):          # уперлася в ліміт — без обірваного речення

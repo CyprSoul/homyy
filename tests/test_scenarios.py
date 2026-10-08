@@ -127,7 +127,7 @@ def run(steps, answers, monkeypatch, tmp_path, teach_rule="Коли просят
             return _Resp({"message": {"content": teach_rule}})
         q = last.split("\n\n(Службова довідка")[0]
         asked.append(q)
-        if any("Службове" in m.get("content", "") for m in msgs[-1:]) or msgs[-1].get("role") == "tool":
+        if any(("Службове" in m.get("content", "") or "Системна перевірка" in m.get("content", "")) for m in msgs[-1:]) or msgs[-1].get("role") == "tool":
             q = "__after__"                         # друга спроба (після інструмента чи «зроби зараз»)
         reply = next((a for key, a in answers if key.lower() in q.lower()), "Добре.")
         if isinstance(reply, list):
@@ -302,3 +302,25 @@ def test_background_tool_promise_is_not_nudged():
     b.tools.call = lambda name, args: "Передала завдання."
     answer = b.ask("Напиши сторінку для тренувань")
     assert "ЗАЙВА" not in answer and "Gemini" in answer
+
+
+def test_claims_without_tool_twice_becomes_honest(monkeypatch, tmp_path):
+    """«Я вже почала писати…» без інструмента навіть після перевірки — не обманює, а чесно каже, що не запустила."""
+    calls = []
+    monkeypatch.setattr("agent.tools.Tools.call", lambda self, n, a: calls.append(n) or "")
+    said, asked, _ = run([("hear", "Перероби мені план харчування")],
+                         [("харчування", "Зараз усе перероблю. Я почала писати новий план."),
+                          ("__after__", "Вибач, ти правий. Я вже почала створювати план, зачекай кілька хвилин.")],
+                         monkeypatch, tmp_path)
+    assert not calls
+    assert not any("почала" in x or "Вибач" in x for x in said)
+    assert any("не запустила" in x for x in said)
+
+
+def test_page_retry_intent():
+    from agent.text import page_retry_intent
+    assert page_retry_intent("Сторінка ще не готова, спробуй ще раз написати.", page_recent=False)
+    assert page_retry_intent("Напиши сайт заново", page_recent=False)
+    assert page_retry_intent("Спробуй ще раз", page_recent=True)
+    assert not page_retry_intent("Спробуй ще раз", page_recent=False)          # без контексту — не сторінка
+    assert not page_retry_intent("Напиши сторінку для тренувань", page_recent=True)
