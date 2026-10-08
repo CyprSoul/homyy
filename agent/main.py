@@ -819,7 +819,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     detector = WakeModel.load()
     features = Features() if detector else None
     # Детектор упевнений (схожість ≥ sure) — прокидаємось без перевірки Whisper: на ~1 с швидше.
-    sure = max(detector.threshold, float(w.get("sure_score", 0.9))) if detector else 1.0
+    sure = max(detector.threshold, float(w.get("sure_score", 1.1))) if detector else 1.0
     end_ms = int(w.get("end_silence_ms", 350))   # скільки тиші після «Хооміі» = кінець слова
     speaker.warm(["Так?"])                       # «Так?» синтезуємо наперед — звучить миттєво
     log("👂", "Персональний детектор «Хооміі» увімкнено" if detector else
