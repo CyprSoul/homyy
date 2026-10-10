@@ -10,7 +10,11 @@ import sys
 import threading
 
 import numpy as np
-from faster_whisper import WhisperModel
+
+try:
+    from faster_whisper import WhisperModel
+except ImportError:           # пакета нема або Windows (Smart App Control) блокує його DLL — Whisper необов'язковий
+    WhisperModel = None
 
 from .text import looks_ukrainian
 
@@ -41,8 +45,12 @@ class STT:
         self.language = s.get("language", "uk")
         self.beam_size = int(s.get("beam_size", 1))
 
-        print(f"Завантажую модель для «Хомі»: {s['wake_model']} (процесор)…")
-        self.wake_model = WhisperModel(s["wake_model"], device="cpu", compute_type="int8", cpu_threads=self.threads)
+        self.wake_model = None
+        if WhisperModel is not None:
+            print(f"Завантажую модель для «Хомі»: {s['wake_model']} (процесор)…")
+            self.wake_model = WhisperModel(s["wake_model"], device="cpu", compute_type="int8", cpu_threads=self.threads)
+        else:
+            print("Whisper недоступний (faster-whisper не завантажується) — слово «Хомі» перевіряю через Parakeet/Canary.")
 
         self.cpu_model = None
         self.gpu_model = None
@@ -61,6 +69,8 @@ class STT:
                 # Parakeet сам вгадує мову й інколи пише російською — тоді перепитуємо Canary (≈0.2 с)
                 threading.Thread(target=self._load_backup, daemon=True).start()
         if self.onnx is None:
+            if WhisperModel is None:
+                raise RuntimeError("Жоден розпізнавач не завантажився: Parakeet/Canary не вийшли, а Whisper заблоковано.")
             self.engine = "whisper"
             print(f"Завантажую модель для команд: {s['model']} (перший раз — кілька хвилин)…")
             if s.get("device", "auto") in ("auto", "cuda"):
@@ -105,11 +115,13 @@ class STT:
             return None, {}
 
     def _ensure_cpu(self):
-        if self.cpu_model is None:
+        if self.cpu_model is None and WhisperModel is not None:
             self.cpu_model = WhisperModel(self.cfg["model"], device="cpu",
                                           compute_type=self.cfg.get("compute_type", "int8"), cpu_threads=self.threads)
 
     def load_gpu(self) -> bool:
+        if WhisperModel is None:
+            return False
         try:
             _enable_cuda_dlls()
             model = WhisperModel(self.cfg["model"], device="cuda",
@@ -142,6 +154,11 @@ class STT:
         return x
 
     def wake(self, pcm: np.ndarray) -> str:
+        if self.wake_model is None:               # без Whisper: те саме питання до Parakeet/Canary
+            if self.onnx is None:
+                return ""
+            with self.lock:
+                return str(self.onnx.recognize(self._f32(pcm), sample_rate=16000, **self.onnx_opts)).strip()
         segs, _ = self.wake_model.transcribe(self._f32(pcm), language=self.language, beam_size=1,
                                              condition_on_previous_text=False,
                                              initial_prompt="Хоооумммііі. Хомі.")
