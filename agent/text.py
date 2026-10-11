@@ -507,3 +507,20 @@ def open_page_intent(transcript: str, page_recent: bool) -> bool:
     if re.search(r"(сторінк|сайт|трекер)", t):
         return True
     return page_recent and bool(re.search(r"\b(її|його)\b", t))
+
+
+_PW = r"(?:сторінк\w*|сайт\w*|трекер\w*)"
+_PAGE_STATUS = re.compile(
+    rf"^(?:ну |а )?(?:як (?:там|просувається|справи з|справи із)|що (?:там )?(?:зі|із|з)) {_PW}$"
+    rf"|^{_PW} (?:вже |ще )?(?:готов\w*|буде готов\w*|пишеться)$"
+    rf"|^скоро (?:буде )?(?:готов\w*|{_PW})$"
+    r"|^ти (?:ще |зараз )?(?:щось )?пишеш$")
+
+
+def page_status_intent(transcript: str) -> bool:
+    """«Як там сторінка?», «сторінка вже готова?», «що зі сторінкою?» — відповідь дає код зі справжнього стану
+    будівника, а не Gemma: вона на таке вигадувала «я ще пишу» чи «все працює»."""
+    t = " ".join(re.sub(r"[^\w' ]", " ", fix_command(transcript).lower()).split())
+    rest = split_wake(t)
+    t = (rest if rest else t).removesuffix(" будь ласка").strip()
+    return bool(_PAGE_STATUS.match(t))

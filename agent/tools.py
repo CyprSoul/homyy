@@ -307,7 +307,8 @@ class Tools(PcTools):
             names = builder.names()
             have = f" Є сторінки: {', '.join(names[:8])}." if names else " Жодної сторінки ще не створено."
             return f"Сторінки з такою назвою немає.{have}"
-        webbrowser.open(path.as_uri())
+        from .builder import open_local
+        open_local(path)
         return f"Відкрила сторінку «{path.stem}»."
 
     def _t_recall(self, query: str) -> str:

@@ -20,7 +20,7 @@ from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
                    is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
                    wants_selection, window_intent, foreign_speech, folder_intent, fix_command, is_repeat, page_retry_intent,
-                   open_page_intent)
+                   open_page_intent, page_status_intent)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -585,6 +585,10 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                 # «Відкрий її в браузері» — остання сторінка, одразу (Gemma тут казала «дай адресу»)
                 log("інструмент", "open_page {} (швидка команда)")
                 answer = brain.direct(text, "open_page", {})
+            elif page_status_intent(text):
+                # «Як там сторінка?» — правду каже код (пишеться / нічого не пишу), а не Gemma, яка тут вигадувала
+                log("інструмент", "page_status {} (швидка команда)")
+                answer = brain.direct(text, "page_status", {})
             elif (page_task := brain.tools.last_page_task()) and page_retry_intent(
                     text, time.time() - page_task.get("t", 0) < 3600):
                 # «Спробуй ще раз написати сторінку» — те саме завдання ще раз, без Gemma (вона тут вигадує «вже пишу»)

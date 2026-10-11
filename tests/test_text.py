@@ -129,6 +129,16 @@ def test_media_intent():
     assert media_intent("Розкажи, чому музика на паузі буває корисною для концентрації уваги") is None
 
 
+def test_page_status_intent():
+    from agent.text import page_status_intent as status
+    for q in ("Як там сторінка?", "Хомі, як там сайт?", "А як просувається сторінка", "Сторінка вже готова?",
+              "Що зі сторінкою?", "Скоро буде готово?", "Ти ще пишеш?", "Як там трекер"):
+        assert status(q), q
+    for q in ("Відкрий сторінку трекера", "Як створити сторінку для тренувань?", "Напиши сторінку для тренувань",
+              "Як справи?", "Яка завтра погода?"):
+        assert not status(q), q
+
+
 def test_claims_work_in_progress():
     from agent.text import claims_work_in_progress as claims
     assert claims("Я справді ще не закінчила її писати, тому відкрити поки нічого не можу.")

@@ -4,7 +4,9 @@ Gemma пише код у фоні (≈1–2 хв: це той самий моз�
 Документи\\Хомі\\сторінки, відкривається в браузері, і Хомі каже «готово». Дані сторінка тримає
 в localStorage браузера — нічого не йде в інтернет. Правки: «зроби кнопки більшими» → edit.
 """
+import os
 import re
+import sys
 import threading
 import time
 import webbrowser
@@ -107,6 +109,16 @@ def pages_dir() -> Path:
     d = PAGES_DIR
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def open_local(path: Path) -> None:
+    """Відкриває локальну сторінку в браузері за замовчуванням. На Windows webbrowser.open(file:///…) іде через
+    обробник протоколу «file» і відкривав Edge на домашній MSN замість сторінки («лівий сайт»), хоча браузер
+    за замовчуванням інший; os.startfile бере програму, призначену для .html."""
+    if sys.platform == "win32":
+        os.startfile(str(path))
+    else:
+        webbrowser.open(path.as_uri())
 
 
 def slug(name: str) -> str:
@@ -263,7 +275,9 @@ class PageBuilder:
 
     def status(self) -> str:
         if not self.busy:
-            return "Зараз нічого не пишу."
+            names = self.names()
+            return "Зараз нічого не пишу." + (f" Готова сторінка «{names[0]}» — можу відкрити." if names else
+                                              " Жодної сторінки ще не створено.")
         m, sec = divmod(int(time.time() - self.started), 60)
         what = {"пишу": "Gemini пише код" if self.remote else "пишу код", "пишу сама": "пишу сама (Gemini недоступний)"
                 }.get(self.stage) or (f"{self.stage} (шукаю й виправляю помилки)" if self.stage.startswith("перевір")
@@ -356,7 +370,7 @@ class PageBuilder:
                     html = self.review(html, request, rounds)
                     path.write_text(html, encoding="utf-8")
                 self.last = path
-                webbrowser.open(path.as_uri())
+                open_local(path)
                 self.log("🛠", f"сторінка «{title}» готова за {time.time() - t:.0f} с ({self.author}): {path}")
                 by = "Писав Gemini." if self.author == "Gemini" else ("Писала сама." if self.remote else "")
                 done(f"Готово, сторінка «{title}» відкрита в браузері. {by}".strip())

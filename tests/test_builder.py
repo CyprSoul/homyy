@@ -51,6 +51,19 @@ def test_find_page_is_forgiving_and_never_invents(monkeypatch, tmp_path):
     assert b.find("кросворд") is None                               # невідома назва не підміняється чужою
 
 
+def test_local_page_is_opened_via_file_association_not_a_file_url(system_calls, tmp_path, monkeypatch):
+    # раніше webbrowser.open(file:///…) відкривав Edge на домашній MSN замість сторінки
+    import sys
+    page = tmp_path / "a.html"
+    page.write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr(builder.webbrowser, "open", lambda url: system_calls.append(["webbrowser", url]))
+    builder.open_local(page)
+    if sys.platform == "win32":
+        assert system_calls == [["startfile", str(page)]]
+    else:
+        assert system_calls == [["webbrowser", page.as_uri()]]
+
+
 def test_open_page_lists_real_pages_when_name_is_unknown(monkeypatch, tmp_path):
     from agent.tools import Tools
     monkeypatch.setattr(builder, "pages_dir", lambda: tmp_path)
@@ -82,7 +95,7 @@ def test_streaming_progress(monkeypatch, tmp_path):
     assert b.lines == 3 and shown and "пишу" in shown[0]
     assert "3 рядків" in b.status()
     b.busy = None
-    assert b.status() == "Зараз нічого не пишу."
+    assert b.status().startswith("Зараз нічого не пишу.")
 
 
 def test_review_fixes_then_stops_on_ok(monkeypatch):
