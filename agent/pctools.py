@@ -15,6 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from .jobs import at as _at
 from .text import is_yes
 
 HOME = Path.home()
@@ -125,6 +126,10 @@ class PcTools:
             schema("set_reminder", "Таймер/нагадування: через N хвилин Хомі скаже про це вголос.",
                    {"minutes": {"type": "number"}, "text": {"type": "string", "description": "Про що нагадати"}},
                    ["minutes"]),
+            schema("cancel_reminder", "Скасувати нагадування: «скасуй нагадування про воду». query — про що воно "
+                   "(порожньо — усі).", {"query": {"type": "string"}}),
+            schema("list_jobs", "Що в мене заплановано і що ти робиш у фоні: нагадування, таймер вимкнення, сторінка, "
+                   "що пишеться («які в мене нагадування?», «що ти зараз робиш?»)."),
             schema("close_app", "Закрити програму за назвою (наприклад, discord, steam). Потребує підтвердження.",
                    {"name": {"type": "string"}, **confirm}, ["name"]),
             schema("take_screenshot", "Зробити знімок екрана й зберегти в Зображення\\Хомі."),
@@ -180,12 +185,29 @@ class PcTools:
             return ask
         if sys.platform == "win32":
             _run(["shutdown", "/s", "/t", str(minutes * 60)], check=False)
+        self.jobs.add_shutdown(minutes)
         return f"Готово: комп'ютер вимкнеться {when}. Скасувати — «скасуй вимкнення»."
 
     def _t_cancel_shutdown(self) -> str:
         if sys.platform == "win32":
             _run(["shutdown", "/a"], check=False)
+        self.jobs.cancel(kind="shutdown")
         return "Вимкнення скасовано."
+
+    @property
+    def jobs(self):
+        """Книга фонових задач (нагадування, таймер вимкнення) — agent/jobs.py."""
+        if getattr(self, "_jobs", None) is None:
+            from .jobs import JobBook
+            self._jobs = JobBook(on_due=lambda job: self.on_reminder and self.on_reminder(f"Нагадую: {job['title']}."))
+        return self._jobs
+
+    def _t_cancel_reminder(self, query: str = "") -> str:
+        done = self.jobs.cancel(kind="reminder", query=query)
+        if done:
+            return "Скасувала: " + "; ".join(f"нагадування о {_at(j['due'])} — {j['title']}" for j in done) + "."
+        left = self.jobs.describe()
+        return "Такого нагадування немає." + (f" Заплановано: {left}." if left else " Нагадувань зараз немає.")
 
     def _t_sleep_pc(self, confirmed: bool = False) -> str:
         ask = self._needs_yes("sleep_pc", None, confirmed, "Перевести комп'ютер у сон")
@@ -205,13 +227,8 @@ class PcTools:
     def _t_set_reminder(self, minutes: float, text: str = "") -> str:
         minutes = max(0.0, min(float(minutes), 24 * 60))
         what = text.strip() or "час вийшов"
-
-        def fire():
-            if self.on_reminder:
-                self.on_reminder(f"Нагадую: {what}.")
-        threading.Timer(minutes * 60, fire).start()
-        at = datetime.fromtimestamp(time.time() + minutes * 60).strftime("%H:%M")
-        return f"Таймер поставлено: о {at} нагадаю — {what}."
+        job = self.jobs.add_reminder(minutes, what)        # у книзі задач: видно, скасовується, переживає перезапуск
+        return f"Таймер поставлено: о {_at(job['due'])} нагадаю — {what}."
 
     def _find_processes(self, name: str) -> list[str]:
         if sys.platform != "win32":

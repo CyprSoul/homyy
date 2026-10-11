@@ -798,6 +798,12 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
             log("помилка нагадування", str(e))
         ui.set_state(prev)
     brain.tools.on_reminder = remind
+    # нагадування з книги задач переживають перезапуск; ті, що минули, поки Хомі була вимкнена, — озвучуємо
+    from .jobs import at as _job_at
+    for job in brain.tools.jobs.arm_all():
+        log("⏰", f"пропущене нагадування ({_job_at(job['due'])}): {job['title']}")
+        threading.Thread(target=remind, daemon=True, args=(
+            f"Поки мене не було, минув час нагадування о {_job_at(job['due'])}: {job['title']}.",)).start()
     brain.tools.log_fn = log
     brain.tools.on_task = (lambda text: orb.set_task(text)) if orb is not None else None
 

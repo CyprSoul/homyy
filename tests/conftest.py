@@ -32,9 +32,10 @@ def system_calls(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolated_pages_dir(monkeypatch, tmp_path):
-    """Тести не створюють і не читають справжні сторінки в Документах."""
-    from agent import builder
+    """Тести не створюють і не читають справжні сторінки в Документах і справжню книгу задач."""
+    from agent import builder, jobs
     monkeypatch.setattr(builder, "PAGES_DIR", tmp_path / "pages")
+    monkeypatch.setattr(jobs, "JOBS_FILE", tmp_path / "jobs.json")
 
 
 @pytest.fixture(autouse=True)

@@ -17,3 +17,4 @@ agent/greetings.json
 agent/diary.jsonl
 agent/orb_pos.json
 evals/results/
+agent/jobs.json

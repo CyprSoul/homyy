@@ -54,7 +54,8 @@ BACKGROUND_TOOLS = {"make_page", "edit_page", "set_reminder"}
 # Так модель не може «зробити» те, чого інструмент не зробив, у будь-якій темі, а не за списком фраз.
 RECEIPT_TOOLS = {"open_app", "close_app", "media", "play_music", "open_website", "search_on_site", "open_page",
                  "make_page", "edit_page", "page_status", "set_reminder", "window", "click_on_screen", "open_folder",
-                 "remember", "forget_fact", "shutdown_timer", "cancel_shutdown", "sleep_pc", "lock_pc",
+                 "remember", "forget_fact", "shutdown_timer", "cancel_shutdown", "cancel_reminder", "list_jobs",
+                 "sleep_pc", "lock_pc",
                  "take_screenshot", "mark_game", "notes_add", "organize_downloads"}
 # Інструменти, що приносять ФАКТИ: після них кожне число у відповіді має знайтися в їхніх результатах
 INFO_TOOLS = {"web_search", "read_page", "wiki", "look_at_screen", "list_folder", "find_file", "recall",

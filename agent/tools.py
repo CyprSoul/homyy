@@ -275,21 +275,40 @@ class Tools(PcTools):
         b = getattr(self, "_page_builder", None)
         return bool(b and b.busy)
 
+    def _planned(self) -> str:
+        try:
+            plan = self.jobs.describe()
+        except Exception:            # noqa: BLE001
+            plan = ""
+        return (f" Заплановано (це правда): {plan}." if plan else " Нагадувань і таймерів зараз немає.")
+
     def background_status(self) -> str:
-        """Що Хомі зараз робить у фоні — щоб на «як справи?» не вигадувала «шліфую дизайн»."""
+        """Що Хомі зараз робить у фоні й що заплановано — щоб на «як справи?» не вигадувала «шліфую дизайн»,
+        а на «які нагадування?» знала правду."""
+        planned = self._planned()
         try:
             b = self._builder()      # навіть якщо ще не створювали: після перезапуску порожня довідка спонукала вигадувати
         except Exception:            # noqa: BLE001
-            return ""
+            return planned
         if b.busy:
-            return f" Фонова робота (це правда, кажи лише це, без вигадок): {b.status()}"
+            return f" Фонова робота (це правда, кажи лише це, без вигадок): {b.status()}" + planned
         try:
             names = b.names()
         except Exception:            # noqa: BLE001
             names = []
         ready = (f" Готові сторінки (найсвіжіша перша): {', '.join(names[:6])}; відкрити — інструмент open_page."
                  if names else " Жодної сторінки ще не створено.")
-        return " Зараз ти НЕ пишеш жодної сторінки й нічого не робиш у фоні — не кажи, що щось пишеш чи шліфуєш." + ready
+        return (" Зараз ти НЕ пишеш жодної сторінки — не кажи, що щось пишеш чи шліфуєш." + ready + planned)
+
+    def _t_list_jobs(self) -> str:
+        """Відповідь коду, а не моделі: що заплановано й що пишеться."""
+        parts = []
+        if self.page_busy():
+            parts.append(self._builder().status())
+        plan = self.jobs.describe()
+        if plan:
+            parts.append(f"Заплановано: {plan}.")
+        return " ".join(parts) or "Нічого не заплановано, і у фоні я нічого не роблю."
 
     def last_page_task(self) -> dict | None:
         from .builder import PageBuilder

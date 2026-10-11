@@ -32,7 +32,8 @@ ACTION_TOOLS = {"open_app", "close_app", "media", "play_music", "open_website", 
                 "shutdown_timer", "cancel_shutdown", "sleep_pc", "lock_pc", "take_screenshot", "notes_add",
                 "organize_downloads", "mark_game"}
 CONFIRM = {"close_app", "shutdown_timer", "sleep_pc"}
-PURE = {"current_datetime", "date_difference", "recall"}           # без побічних дій — справжні
+# без побічних дій — справжні (нагадування — у тимчасовій книзі задач перевірки, не в agent/jobs.json)
+PURE = {"current_datetime", "date_difference", "recall", "set_reminder", "cancel_reminder", "list_jobs"}
 
 
 def _host(url: str) -> str:
@@ -56,6 +57,11 @@ class FakeTools(Tools):
         self._task = ({"name": PAGE, "request": "трекер тренувань з календарем", "t": time.time() - 600}
                       if state.get("page_task") else None)
         self._overrides = dict(state.get("tool_results", {}))
+        import tempfile
+        from .jobs import JobBook
+        self._jobs = JobBook(path=Path(tempfile.mkdtemp()) / "jobs.json")
+        for j in state.get("jobs", []):                 # «у мене вже є нагадування про воду»
+            self._jobs.add_reminder(j["minutes"], j["text"])
 
     def last_page_task(self):
         return self._task

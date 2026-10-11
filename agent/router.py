@@ -21,6 +21,12 @@ class Route:
 
 
 _FORGET_SKILL = re.compile(r"^(?:хомі,?\s*)?(?:забудь|розучись),? як", re.I)
+# «Які в мене нагадування?», «Що заплановано?», «Що ти робиш у фоні?» — правду каже книга задач (agent/jobs.py)
+_LIST_JOBS = re.compile(r"\b(?:які|що)\b.*\b(?:нагадування|таймер\w*|заплановано|запланувала)\b"
+                        r"|\bщо ти (?:зараз )?робиш у фоні\b", re.I)
+_CANCEL_REMINDER = re.compile(r"^(?:хомі,?\s*)?(?:скасуй|відміни|прибери|видали)\s+(?:всі\s+|усі\s+)?"
+                              r"(?:нагадування|таймер\w*)(?:\s+(?:про|на|щодо)\s+(.+?))?[.!]*$", re.I)
+_CANCEL_SHUTDOWN = re.compile(r"^(?:хомі,?\s*)?(?:скасуй|відміни)\s+(?:вимкнення|виключення)", re.I)
 # «Про що ми вчора говорили?», «Що ми вирішили щодо тренувань?» — модель тут вигадувала спогади або «не розуміла»
 _RECALL = re.compile(r"\bщо ми (?:з тобою )?(?:[\w']+\s+){0,2}(?:говорили|обговорювали|розмовляли|вирішили)\b", re.I)
 # «Забудь, що я люблю каву», «Забудь про каву» — стерти факт про мене (модель тут новий інструмент не кликала).
@@ -64,6 +70,14 @@ def route(text: str, awaiting: tuple | None = None, page_task: dict | None = Non
     fact = _FORGET_FACT.match(text.strip().replace("’", "'"))
     if fact:
         return Route("tool", "forget_fact", {"query": fact.group(1)})
+    plain = text.strip().replace("’", "'")
+    cancel = _CANCEL_REMINDER.match(plain)
+    if cancel:                                         # «скасуй нагадування про воду»
+        return Route("tool", "cancel_reminder", {"query": cancel.group(1) or ""})
+    if _CANCEL_SHUTDOWN.match(plain):
+        return Route("tool", "cancel_shutdown", {})
+    if _LIST_JOBS.search(plain) and not re.search(r"\b(?:нагадай|постав|скасуй)\b", plain, re.I):
+        return Route("tool", "list_jobs", {})          # «які в мене нагадування?»
     if _RECALL.search(text.replace("’", "'")):         # «про що ми вчора говорили?» — зі щоденника, а не з голови
         return Route("tool", "recall", {"query": text},
                      summarize="Ось що в щоденнику наших розмов — коротко перекажи голосом лише це, нічого не додавай:")
