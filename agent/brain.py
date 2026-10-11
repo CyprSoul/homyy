@@ -8,7 +8,7 @@ import requests
 
 from .config import REPO_DIR, ollama_options
 from .text import (claims_action, claims_short_action, claims_work_in_progress, extract_prompt, fix_russisms,
-                   looks_ukrainian, numbers_in, promises_more, self_disclosure, ukr_date, wants_other_language)
+                   is_yes, looks_ukrainian, numbers_in, promises_more, self_disclosure, ukr_date, wants_other_language)
 from .tools import Tools
 
 VOICE_RULES = """
@@ -483,9 +483,15 @@ class Brain:
         remembered = self._auto_remember(user_text)     # до відповіді: тоді її «запам'ятала» — правда
         mem = (f" Факт про мене вже записано в пам'ять: «{remembered}» — можеш коротко сказати, що запам'ятала, "
                "і говорити далі." if remembered else "")
+        # «Робимо?» — «Робимо.»: без цієї підказки модель відповідала «Зробила! Я оновила сторінку…», нічого не запустивши
+        last_said = next((str(m.get("content", "")) for m in reversed(self.history[:-1])
+                          if m.get("role") == "assistant"), "")
+        agreed = (" Я погодився з твоєю пропозицією: якщо ти пропонувала дію — виклич потрібний інструмент просто зараз "
+                  "і не кажи «зробила», доки не викликала його; якщо питала про інше — просто відповідай."
+                  if is_yes(user_text) and last_said.rstrip().endswith("?") else "")
         now = {"role": "user", "content": f"{user_text}\n\n(Службова довідка, не для озвучення: зараз "
                                           f"{datetime.now():%H:%M}. Називай час лише тоді, коли я про нього питаю "
-                                          f"— тоді одразу, без інструментів.{bg}{mem})"}
+                                          f"— тоді одразу, без інструментів.{bg}{mem}{agreed})"}
         past = [{"role": m["role"], "content": m["content"]} for m in self.history[:-1]]   # без службових позначок
         messages = [{"role": "system", "content": self._system_prompt()}, *past, now]
 

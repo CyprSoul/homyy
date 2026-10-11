@@ -1,3 +1,5 @@
+import time
+
 from agent.brain import STYLE_REMINDER, Brain
 
 CFG = {"user": {"name": "Ігор", "name_genitive": "Ігоря"},
@@ -373,3 +375,29 @@ def test_greet_in_own_words_and_not_repeating(monkeypatch, tmp_path):
     second = b.greet()
     assert first and second and first != second
     assert first not in sent[1]            # старі привітання моделі НЕ показуємо: вони ставали зразком для наслідування
+
+
+def test_short_yes_after_her_question_reminds_the_model_to_act(monkeypatch, tmp_path):
+    """Лог 12.10: «Робимо?» — «Робимо.» → модель відповіла «Зробила!», не викликавши edit_page."""
+    b = Brain(CFG)
+    monkeypatch.setattr(b, "_memories", lambda: [])
+    monkeypatch.setattr(Brain, "GREET_FILE", tmp_path / "g.json")
+    seen = []
+
+    def fake_chat(messages):
+        seen.append(messages[-1]["content"])
+        return {"content": "Добре."}
+    monkeypatch.setattr(b, "_chat", fake_chat)
+    b.history = [{"role": "user", "content": "Шапку зробити вузькою."},
+                 {"role": "assistant", "content": "Зроблю шапку смужкою, а текст по центру. Робимо?"}]
+    b.last_turn = time.time()                                        # розмова триває — історію не скидаємо
+    b.ask("Робимо.")
+    assert "пропозицією" in seen[-1] and "виклич потрібний інструмент" in seen[-1]
+    b.history = [{"role": "user", "content": "Привіт"}, {"role": "assistant", "content": "Привіт, Ігорю."}]
+    b.last_turn = time.time()
+    b.ask("Так.")                                                    # вона нічого не питала — підказки нема
+    assert "пропозицією" not in seen[-1]
+    b.history[-2:] = [{"role": "assistant", "content": "Як справи?"}]
+    b.last_turn = time.time()
+    b.ask("Розкажи про погоду")                                      # не згода — підказки нема
+    assert "пропозицією" not in seen[-1]
