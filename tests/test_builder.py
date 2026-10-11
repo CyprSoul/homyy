@@ -32,6 +32,36 @@ def test_make_page_in_background(monkeypatch, tmp_path):
     assert (tmp_path / "тренування.bak.html").exists()
 
 
+def test_find_page_is_forgiving_and_never_invents(monkeypatch, tmp_path):
+    import os
+    monkeypatch.setattr(builder, "pages_dir", lambda: tmp_path)
+    for i, name in enumerate(("борщ", "тренування")):               # «тренування» — найсвіжіша
+        p = tmp_path / f"{name}.html"
+        p.write_text("<html></html>", encoding="utf-8")
+        os.utime(p, (1000 + i, 1000 + i))
+    (tmp_path / "тренування.bak.html").write_text("x", encoding="utf-8")    # копії не рахуються
+    b = builder.PageBuilder({"ollama": {"url": "http://x", "model": "m"}}, log=lambda *a: None)
+    assert b.names() == ["тренування", "борщ"]
+    assert b.find("тренування").stem == "тренування"                # точна назва
+    assert b.find("борщ").stem == "борщ"
+    assert b.find("трекер тренувань").stem == "тренування"          # «трекер» у назві не заважає
+    assert b.find("трекер").stem == "тренування"                    # лише загальне слово — найсвіжіша сторінка
+    assert b.find("її").stem == "тренування"
+    assert b.find("нашу сторінку").stem == "тренування"
+    assert b.find("кросворд") is None                               # невідома назва не підміняється чужою
+
+
+def test_open_page_lists_real_pages_when_name_is_unknown(monkeypatch, tmp_path):
+    from agent.tools import Tools
+    monkeypatch.setattr(builder, "pages_dir", lambda: tmp_path)
+    monkeypatch.setattr(builder.webbrowser, "open", lambda url: None)
+    (tmp_path / "тренування.html").write_text("<html></html>", encoding="utf-8")
+    t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
+    assert "Відкрила сторінку «тренування»" in t.call("open_page", {"name": "трекер"})
+    out = t.call("open_page", {"name": "кросворд"})
+    assert "Є сторінки: тренування" in out
+
+
 def test_streaming_progress(monkeypatch, tmp_path):
     import json
     b = builder.PageBuilder({"ollama": {"url": "http://x", "model": "m"}}, log=lambda *a: None)

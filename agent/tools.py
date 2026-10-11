@@ -290,9 +290,12 @@ class Tools(PcTools):
         return self._builder().status()
 
     def _t_open_page(self, name: str = "") -> str:
-        path = self._builder().find(name)
+        builder = self._builder()
+        path = builder.find(name)
         if path is None:
-            return "Такої сторінки ще немає."
+            names = builder.names()
+            have = f" Є сторінки: {', '.join(names[:8])}." if names else " Жодної сторінки ще не створено."
+            return f"Сторінки з такою назвою немає.{have}"
         webbrowser.open(path.as_uri())
         return f"Відкрила сторінку «{path.stem}»."
 

@@ -97,6 +97,10 @@ GEMINI_ERRORS = {400: "ключ чи запит не підходить", 401: "
 
 
 PAGES_DIR = Path.home() / "Documents" / "Хомі" / "сторінки"
+# слова, що не називають сторінку, а лише вказують на неї: «відкрий нашу сторінку», «покажи її», «трекер»
+GENERIC_PAGE_WORDS = {"сторінка", "сторінку", "сторінки", "сторінці", "сторінко", "сайт", "сайту", "трекер", "трекера",
+                      "програма", "програму", "додаток", "застосунок", "її", "його", "ту", "цю", "нашу", "нашої",
+                      "мою", "моя", "останню", "свою", "відкрий", "покажи", "будь", "ласка", "для"}
 
 
 def pages_dir() -> Path:
@@ -283,13 +287,32 @@ class PageBuilder:
             self._logged = time.time()
             self.log("🛠", text)
 
-    def find(self, name: str = "") -> Path | None:
+    def _pages(self) -> list[Path]:
+        """Усі сторінки, найсвіжіші першими."""
         pages = [p for p in pages_dir().glob("*.html") if not p.name.endswith(".bak.html")]
+        return sorted(pages, key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def names(self) -> list[str]:
+        return [p.stem for p in self._pages()]
+
+    def find(self, name: str = "") -> Path | None:
+        pages = self._pages()
         if not name:
-            return self.last or max(pages, key=lambda p: p.stat().st_mtime, default=None)
+            return self.last or (pages[0] if pages else None)
         want = slug(name)
         exact = [p for p in pages if p.stem == want]
-        return exact[0] if exact else next((p for p in pages if want in p.stem or p.stem in want), None)
+        if exact:
+            return exact[0]
+        sub = next((p for p in pages if want in p.stem or p.stem in want), None)
+        if sub:
+            return sub
+        # нечітко: «трекер тренувань» → «тренування» (збіг за початком слова); якщо в назві лише загальні слова
+        # («трекер», «сторінку», «її») — найсвіжіша сторінка, а не вигадана назва, якої модель не знає
+        words = [w for w in re.findall(r"\w+", name.lower()) if w not in GENERIC_PAGE_WORDS]
+        if not words:
+            return self.last or (pages[0] if pages else None)
+        stems = {w[:5] for w in words if len(w) >= 4}
+        return next((p for p in pages if any(s in p.stem for s in stems)), None)
 
     def review(self, html: str, request: str, rounds: int) -> str:
         """Режим «якісно»: перечитує свій код, шукає помилки й виправляє (до rounds разів)."""
