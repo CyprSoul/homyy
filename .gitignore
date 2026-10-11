@@ -9,6 +9,8 @@ agent/wake_model.json
 agent/orb_error.log
 agent/bench.txt
 agent/stt_compare.txt
+agent/stt_test/
+agent/stt_bench.txt
 agent/skills.json
 agent/lessons.json
 agent/greetings.json
