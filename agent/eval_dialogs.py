@@ -5,6 +5,7 @@
     .venv\\Scripts\\python -m agent.eval_dialogs --model qwen3.5:35b
     .venv\\Scripts\\python -m agent.eval_dialogs --only page           # лише перевірки, в id яких є «page»
     .venv\\Scripts\\python -m agent.eval_dialogs --reflex              # лише швидкі команди, без моделі (секунди)
+    .venv\\Scripts\\python -m agent.eval_dialogs --diary               # чи щоденник пише лише правду (evals/diary_cases.json)
 
 Нічого справжнього не виконує: інструменти «удавані» — записують виклик і повертають правдоподібну відповідь.
 Шлях фрази той самий, що в живій розмові: спершу router.route (швидкі команди), потім Brain.ask (Gemma).
@@ -253,6 +254,43 @@ def run_case(case: dict, cfg: dict, brain_cls, reflex_only: bool) -> dict:
             "seconds": round(dt, 1), "ok": not problems, "problems": problems}
 
 
+def run_diary(cfg: dict) -> None:
+    """--diary: чи пише щоденник лише правду — на справжніх розмовах із логу (evals/diary_cases.json)."""
+    import tempfile
+    from .brain import Brain
+    from .diary import Diary
+    cases = json.loads((REPO_DIR / "evals" / "diary_cases.json").read_text(encoding="utf-8"))
+    print(f"Модель: {cfg['ollama']['model']} · щоденник · перевірок: {len(cases)}\n", flush=True)
+    ok = 0
+    for c in cases:
+        history = []
+        for item in c["talk"]:
+            m = {"role": item[0], "content": item[1]}
+            if item[0] == "assistant":
+                m["done"] = item[2] if len(item) > 2 else []
+            history.append(m)
+        brain = Brain(cfg)
+        brain.diary = Diary(Path(tempfile.mkdtemp()) / "diary.jsonl")
+        summary = brain.summarize(history)
+        e, problems = c["expect"], []
+        if e.get("none"):
+            if summary:
+                problems.append("мало бути без запису")
+        else:
+            if not summary:
+                problems.append("запису нема")
+            for key in ("must", "must_also"):
+                if e.get(key) and not re.search(e[key], summary or "", re.I):
+                    problems.append(f"нема /{e[key]}/")
+            if e.get("must_not") and re.search(e["must_not"], summary or "", re.I):
+                problems.append(f"є /{e['must_not']}/")
+        ok += not problems
+        print(f"{'✔' if not problems else '✘'} {c['id']:<26} «{summary}»", flush=True)
+        for p in problems:
+            print(f"     · {p}")
+    print(f"\nПРОЙДЕНО {ok} з {len(cases)}")
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -260,6 +298,9 @@ def main():
     cfg = load_config()
     if "--model" in args:
         cfg["ollama"]["model"] = args[args.index("--model") + 1]
+    if "--diary" in args:
+        run_diary(cfg)
+        return
     only = args[args.index("--only") + 1] if "--only" in args else None
     if "--tools" in args:                    # subset — лише доречні інструменти (agent/toolsets.py), all — усі
         cfg["ollama"]["tool_select"] = args[args.index("--tools") + 1] == "subset"

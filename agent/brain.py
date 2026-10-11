@@ -54,7 +54,7 @@ BACKGROUND_TOOLS = {"make_page", "edit_page", "set_reminder"}
 # Так модель не може «зробити» те, чого інструмент не зробив, у будь-якій темі, а не за списком фраз.
 RECEIPT_TOOLS = {"open_app", "close_app", "media", "play_music", "open_website", "search_on_site", "open_page",
                  "make_page", "edit_page", "page_status", "set_reminder", "window", "click_on_screen", "open_folder",
-                 "remember", "forget_fact", "shutdown_timer", "cancel_shutdown", "cancel_reminder", "list_jobs",
+                 "remember", "forget_fact", "forget_last_talk", "shutdown_timer", "cancel_shutdown", "cancel_reminder", "list_jobs",
                  "sleep_pc", "lock_pc",
                  "take_screenshot", "mark_game", "notes_add", "organize_downloads"}
 # Інструменти, що приносять ФАКТИ: після них кожне число у відповіді має знайтися в їхніх результатах
@@ -342,7 +342,9 @@ class Brain:
         self.last_turn = time.time()
         self.stats = []
         answer = re.sub(r"\s*\(Службове:.*?\)\s*$", "", self.tools.call(tool, args), flags=re.S)
-        self.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]
+        rc = receipt_of(tool, answer)
+        self.history += [{"role": "user", "content": user_text},
+                         {"role": "assistant", "content": answer, "done": [rc] if rc else []}]
         self.last_exchange = (user_text, answer)
         return answer
 
@@ -352,10 +354,11 @@ class Brain:
         return answer
 
     def summarize(self, history: list[dict]) -> str | None:
-        """Підсумок розмови для щоденника (у фоні, коли розмова скінчилась)."""
-        from .diary import SUMMARY_PROMPT, dialog_text
-        if sum(1 for m in history if m.get("role") == "user") < 2:
-            return None                       # «пауза», «відкрий стім» — не розмова
+        """Підсумок розмови для щоденника (у фоні, коли розмова скінчилась). Лише перевірене: дії — з позначок
+        «зроблено кодом» (квитанцій), а не з її слів; шум і «Не зрозуміла…» розмовою не рахуються."""
+        from .diary import SUMMARY_PROMPT, dialog_text, meaningful_turns, drop_unproven
+        if meaningful_turns(history) < 2:
+            return None                       # «пауза», «відкрий стім», шум — не розмова
         o = self.cfg["ollama"]
         try:
             r = requests.post(f"{o['url']}/api/chat", timeout=90, json={
@@ -368,7 +371,9 @@ class Brain:
             return None
         if not text or text.upper().startswith("NONE"):
             return None
-        text = fix_russisms(text)
+        text = drop_unproven(fix_russisms(text), history)   # «Хомі почала писати…», коли нічого не зроблено, — геть
+        if not text:
+            return None
         self.diary.add(text)
         return text
 
@@ -494,7 +499,8 @@ class Brain:
         now = {"role": "user", "content": f"{user_text}\n\n(Службова довідка, не для озвучення: зараз "
                                           f"{datetime.now():%H:%M}. Називай час лише тоді, коли я про нього питаю "
                                           f"— тоді одразу, без інструментів.{bg}{mem})"}
-        messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
+        past = [{"role": m["role"], "content": m["content"]} for m in self.history[:-1]]   # без службових позначок
+        messages = [{"role": "system", "content": self._system_prompt()}, *past, now]
 
         used_tools, nudged, lang_nudged, background = False, False, False, False
         receipts: list[str] = []                         # що вже зроблено — словами самих інструментів
@@ -552,7 +558,7 @@ class Brain:
                     answer = " ".join(stream.spoken)
                 else:
                     answer = " ".join([*receipts, honest])
-                self.history.append({"role": "assistant", "content": honest})
+                self.history.append({"role": "assistant", "content": honest, "done": list(receipts)})
                 self.last_exchange = (user_text, answer)
                 return answer
             bad = self._ungrounded(content, user_text, info_results) if (not calls and info_results) else []
@@ -592,7 +598,8 @@ class Brain:
                         text_ = " ".join(x for x in re.split(r"(?<=[.!?…])\s+", text_) if x and not done_claim(x))
                     rest = self.polish(user_text, text_) if text_.strip() else ""
                     answer = " ".join(x for x in [*receipts, rest] if x)
-                self.history.append({"role": "assistant", "content": answer})
+                # «done» — що справді зробив код: щоденник пише дії лише звідси, а не з її слів
+                self.history.append({"role": "assistant", "content": answer, "done": list(receipts)})
                 self.last_exchange = (user_text, answer)
                 return answer
             used_tools = True

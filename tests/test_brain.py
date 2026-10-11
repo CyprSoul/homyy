@@ -27,7 +27,8 @@ def test_tool_loop(monkeypatch):
     tool_msg = seen[1][-1]
     assert tool_msg["role"] == "tool" and '"days": 17' in tool_msg["content"]
     assert tool_msg["content"].endswith(STYLE_REMINDER)
-    assert b.history[-1] == {"role": "assistant", "content": "Тимофію шість місяців і сімнадцять днів."}
+    # «done» — що справді зробив код (тут нічого: date_difference лише рахує) — для правдивого щоденника
+    assert b.history[-1] == {"role": "assistant", "content": "Тимофію шість місяців і сімнадцять днів.", "done": []}
 
 
 def test_unasked_time_is_stripped():

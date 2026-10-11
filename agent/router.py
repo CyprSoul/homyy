@@ -29,6 +29,8 @@ _CANCEL_REMINDER = re.compile(r"^(?:хомі,?\s*)?(?:скасуй|відмін�
 _CANCEL_SHUTDOWN = re.compile(r"^(?:хомі,?\s*)?(?:скасуй|відміни)\s+(?:вимкнення|виключення)", re.I)
 # «Про що ми вчора говорили?», «Що ми вирішили щодо тренувань?» — модель тут вигадувала спогади або «не розуміла»
 _RECALL = re.compile(r"\bщо ми (?:з тобою )?(?:[\w']+\s+){0,2}(?:говорили|обговорювали|розмовляли|вирішили)\b", re.I)
+_FORGET_TALK = re.compile(r"^(?:хомі,?\s*)?(?:забудь|видали|викресли|прибери)\s+(?:останню|нашу|цю|попередню)\s+"
+                          r"розмову", re.I)
 # «Забудь, що я люблю каву», «Забудь про каву» — стерти факт про мене (модель тут новий інструмент не кликала).
 # «Забудь урок/правило про …» сюди не потрапляє: його раніше обробляють уроки (lessons.forget_request).
 _FORGET_FACT = re.compile(r"^(?:хомі,?\s*)?(?:забудь|видали з пам'яті|викресли з пам'яті)\W+"
@@ -67,6 +69,8 @@ def route(text: str, awaiting: tuple | None = None, page_task: dict | None = Non
         return Route("tool", "make_page", {"name": page_task["name"], "request": page_task["request"]})
     if _FORGET_SKILL.match(text.strip()):
         return Route("forget_skill")
+    if _FORGET_TALK.match(text.strip()):                # «забудь останню розмову» — запис зі щоденника
+        return Route("tool", "forget_last_talk", {})
     fact = _FORGET_FACT.match(text.strip().replace("’", "'"))
     if fact:
         return Route("tool", "forget_fact", {"query": fact.group(1)})

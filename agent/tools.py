@@ -171,6 +171,7 @@ class Tools(PcTools):
             _schema("forget_fact", "Забути факт про мене з пам'яті: «забудь, що я люблю каву». query — ключові "
                     "слова з того факту.",
                     {"query": {"type": "string"}}, ["query"]),
+            _schema("forget_last_talk", "Прибрати зі щоденника останню розмову: «забудь останню розмову»."),
             _schema("play_music", "Увімкнути музику в YouTube Music: «увімкни музику» (без запиту — мої "
                     "вподобані пісні) або конкретну пісню, виконавця, жанр («увімкни Океан Ельзи», "
                     "«увімкни щось спокійне для роботи»).",
@@ -369,6 +370,11 @@ class Tools(PcTools):
                           headers={"Authorization": f"Bearer {ow['api_key']}"}, timeout=10)
         r.raise_for_status()
         return "Записано в пам'ять."
+
+    def _t_forget_last_talk(self) -> str:
+        from .diary import Diary
+        gone = Diary().forget_last()
+        return f"Забула останню розмову зі щоденника: «{gone}»" if gone else "Щоденник порожній."
 
     def _t_forget_fact(self, query: str) -> str:
         ow = self.cfg.get("openwebui", {})

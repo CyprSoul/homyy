@@ -33,7 +33,7 @@ GROUPS: dict[str, tuple[set[str], str]] = {
               r"вимкн|виключ|сон|засни|спати|заблоку|комп'ютер|перезавантаж"),
     "time": ({"date_difference", "cancel_reminder"},
              r"скільки днів|до нового|дата|числ|нагад|таймер|скасуй|відміни|хвилин|годин|тижн|днів"),
-    "memory": ({"forget_fact"}, r"забудь|пам'ят|викресли"),
+    "memory": ({"forget_fact", "forget_last_talk"}, r"забудь|пам'ят|викресли|розмов"),
     "personal": ({"mail_unread", "money_balance", "money_spending", "notes_search", "notes_add"},
                  r"пошт|лист|баланс|гроші|грош|витрат|картк|нотатк|obsidian"),
 }

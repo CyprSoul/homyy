@@ -15,12 +15,24 @@ DIARY_FILE = Path(__file__).resolve().parent / "diary.jsonl"
 SUMMARY_PROMPT = """Ось розмова голосової помічниці Хомі з її господарем Ігорем.
 Коротко підсумуй її українською (1–3 речення, від третьої особи): про що говорили, що вирішили,
 що Ігор просив зробити чи запам'ятати, що для нього важливо. Без води й без вступів.
-Якщо розмова порожня (лише привітання чи команди на кшталт «пауза», «відкрий»), відповідай рівно: NONE
+ПРАВИЛА — щоденник має бути правдивим:
+- Що Хомі ЗРОБИЛА, бери лише з позначок [зроблено: …]. Її слова «почала писати», «працюю над», «зараз
+  зроблю» без такої позначки — не факт: не пиши, що вона це зробила чи робить.
+- Фрази Ігоря, схожі на помилку розпізнавання мови (безглузді слова, незнайомі «імена» без пояснення,
+  обірвані речення), пропускай — не вигадуй, що він мав на увазі.
+- Нічого не додавай від себе.
+Якщо розмова порожня (лише привітання, шум чи команди на кшталт «пауза», «відкрий»), відповідай рівно: NONE
 
 Розмова:
 {dialog}
 
 Підсумок:"""
+
+# «Хомі почала писати сторінку», «Хомі зафіксувала інформацію» — у щоденнику лише якщо в розмові щось справді зроблено
+_HOMI_DID = re.compile(r"\bХомі\b[^.!?]*?\b(?:створила|відкрила|запустила|поставила|записала|зробила|розпочала|"
+                       r"почала|написала|нагадала|закрила|зафіксувала|запам'ятала|працює|працювала|пише|писала|"
+                       r"прийняла завдання|взялася|взяла на себе|продовжує|продовжила)\b", re.IGNORECASE)
+_FALLBACK = ("Не зрозуміла", "Ой, я не можу достукатися")
 
 
 class Diary:
@@ -32,6 +44,15 @@ class Diary:
             return [json.loads(line) for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip()]
         except (OSError, ValueError):
             return []
+
+    def forget_last(self) -> str | None:
+        """«Забудь останню розмову» — прибрати останній запис (наприклад, із помилок розпізнавання)."""
+        items = self._items()
+        if not items:
+            return None
+        last = items.pop()
+        self.path.write_text("".join(json.dumps(it, ensure_ascii=False) + "\n" for it in items), encoding="utf-8")
+        return last["s"]
 
     def add(self, summary: str, when: float | None = None):
         summary = " ".join(summary.split())
@@ -87,10 +108,36 @@ class Diary:
 
 
 def dialog_text(history: list[dict]) -> str:
+    """Розмова для підсумку — з позначками, що справді зробив код (квитанції), а що лише сказано."""
     lines = []
     for m in history:
         if m.get("role") == "user":
             lines.append(f"Ігор: {m.get('content', '')}")
         elif m.get("role") == "assistant" and m.get("content"):
-            lines.append(f"Хомі: {m['content']}")
+            done = m.get("done") or []
+            mark = f" [зроблено: {'; '.join(done)}]" if done else " [жодної дії не виконано]"
+            lines.append(f"Хомі: {m['content']}{mark}")
     return "\n".join(lines)[-4000:]
+
+
+def meaningful_turns(history: list[dict]) -> int:
+    """Скільки реплік Ігоря справді щось означали: без шуму, чужої мови й тих, на які Хомі відповіла
+    «Не зрозуміла…» — з такої «розмови» щоденник записував сміття («Вересно стосовно Стеринка»)."""
+    from .text import is_noise, looks_ukrainian
+    count = 0
+    for i, m in enumerate(history):
+        if m.get("role") != "user":
+            continue
+        text = str(m.get("content", "")).strip()
+        reply = next((str(x.get("content", "")) for x in history[i + 1:i + 2] if x.get("role") == "assistant"), "")
+        if text and looks_ukrainian(text) and not is_noise(text) and not reply.startswith(_FALLBACK):
+            count += 1
+    return count
+
+
+def drop_unproven(summary: str, history: list[dict]) -> str:
+    """Якщо в розмові код не виконав жодної дії — речення «Хомі почала / зробила / пише…» з підсумку прибираємо."""
+    if any(m.get("done") for m in history if m.get("role") == "assistant"):
+        return summary
+    keep = [s for s in re.split(r"(?<=[.!?…])\s+", summary.strip()) if s and not _HOMI_DID.search(s)]
+    return " ".join(keep).strip()
