@@ -7,8 +7,8 @@ from datetime import date, datetime
 import requests
 
 from .config import REPO_DIR, ollama_options
-from .text import (claims_action, claims_work_in_progress, extract_prompt, fix_russisms, looks_ukrainian,
-                   promises_more, ukr_date, wants_other_language)
+from .text import (claims_action, claims_short_action, claims_work_in_progress, extract_prompt, fix_russisms,
+                   looks_ukrainian, promises_more, ukr_date, wants_other_language)
 from .tools import Tools
 
 VOICE_RULES = """
@@ -50,6 +50,27 @@ NUDGE_IDLE = ("[Системна перевірка, Ігор цього не п
 IDLE_ANSWER = "Зараз я нічого не пишу. Скажи, що саме зробити, наприклад «зроби сторінку для тренувань», — і я візьмуся."
 # Роботу ці інструменти доробляють у фоні й самі кажуть «готово» — «скажу, коли буде» тут правда, не порожня обіцянка
 BACKGROUND_TOOLS = {"make_page", "edit_page", "set_reminder"}
+# Дії: про них вголос каже КОД — текстом, який повернув сам інструмент («квитанція»), а не переказ моделі.
+# Так модель не може «зробити» те, чого інструмент не зробив, у будь-якій темі, а не за списком фраз.
+RECEIPT_TOOLS = {"open_app", "close_app", "media", "play_music", "open_website", "search_on_site", "open_page",
+                 "make_page", "edit_page", "page_status", "set_reminder", "window", "click_on_screen", "open_folder",
+                 "remember", "shutdown_timer", "cancel_shutdown", "sleep_pc", "lock_pc", "take_screenshot",
+                 "mark_game", "notes_add", "organize_downloads"}
+
+
+def receipt_of(name: str, result) -> str | None:
+    """Що код скаже вголос про виконану дію. None — це не дія, або її ще не виконано (треба «так»), або помилка
+    (тоді пояснює модель)."""
+    r = str(result or "").strip()
+    if name not in RECEIPT_TOOLS or not r or r.startswith(("ПОТРІБНЕ ПІДТВЕРДЖЕННЯ", "Помилка", "Невідомий інструмент")):
+        return None
+    r = re.sub(r"\s*\(Службове:.*?\)\s*", " ", r, flags=re.S).strip()
+    return r or None
+
+
+def done_claim(sentence: str) -> bool:
+    """Речення-звіт моделі про дію: після квитанції воно зайве (або неправдиве)."""
+    return claims_action(sentence) or claims_short_action(sentence) or claims_work_in_progress(sentence)
 DEEP = re.compile(r"(подумай|поміркуй|подумати|обміркуй|розміркуй|проаналізуй|детально розбери|"
                   r"ретельно|глибоко|як слід подумай|добре подумай)", re.IGNORECASE)
 _TIME_WORDS = ("котра", "година", "годин", "час", "зараз", "сьогодні", "дата", "число", "день")
@@ -105,6 +126,13 @@ class SentenceStream:
         self.used_tools = False
         self.background = False
         self.hold_all = False
+        self.receipts_given = False
+
+    def receipt(self, text: str):
+        """Квитанція про виконану дію — звучить одразу, ще поки модель думає над рештою відповіді."""
+        self.receipts_given = True
+        self.spoken.append(text)
+        self.emit(text)
 
     def feed(self, piece: str):
         self.buf += piece
@@ -120,10 +148,14 @@ class SentenceStream:
             return True
         if claims_work_in_progress(sent) and not self.background and not self.brain.tools.page_busy():
             return True                                     # «ще пишу сторінку», а нічого не пишеться — не озвучуємо
+        if not self.used_tools and claims_short_action(sent):
+            return True                                     # «Продовжую.» без жодної дії — спершу перевірка
         return (len(sent.split()) >= 4 and not looks_ukrainian(sent)
                 and not wants_other_language(self.user_text))
 
     def _sentence(self, sent: str):
+        if self.receipts_given and done_claim(sent):
+            return                                          # про дію вже сказала квитанція — переказ моделі зайвий
         if self.hold or self.hold_all or self._risky(sent):
             self.hold = True
             self.held.append(sent)
@@ -144,6 +176,8 @@ class SentenceStream:
         rest = self.held + ([self.buf.strip()] if self.buf.strip() else [])
         self.buf, self.held, self.hold, self.hold_all = "", [], False, False
         for sent in rest:
+            if self.receipts_given and done_claim(sent):
+                continue
             sent = self.brain.polish(self.user_text, sent)
             if sent:
                 self.spoken.append(sent)
@@ -399,6 +433,7 @@ class Brain:
         messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
         used_tools, nudged, lang_nudged, background = False, False, False, False
+        receipts: list[str] = []                         # що вже зроблено — словами самих інструментів
         # «Подумай гарненько…» — Gemma спершу міркує сама з собою (повільніше, 10–30 с, але розумніше)
         self.deep = bool(DEEP.search(user_text))
         self.last_calls, self.last_results = [], []     # для навичок: що саме зробила на це прохання
@@ -421,8 +456,8 @@ class Brain:
                 continue
             idle_claim = bool(not calls and content and claims_work_in_progress(content)
                               and not background and not self.tools.page_busy())
-            if not calls and not nudged and ((not used_tools and claims_action(content))
-                                             or (promises_more(content) and not background) or idle_claim):
+            fake_done = bool(not used_tools and (claims_action(content) or claims_short_action(content)))
+            if not calls and not nudged and (fake_done or (promises_more(content) and not background) or idle_claim):
                 # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —
                 # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
                 nudged = True
@@ -432,12 +467,11 @@ class Brain:
                     stream.hold_all = True       # відповідь на цю примітку спершу перевіряємо, потім озвучуємо
                 continue
             if not calls and nudged and not background and (
-                    (not used_tools and claims_action(content)) or promises_more(content) or _META.search(content)
-                    or idle_claim):
+                    fake_done or promises_more(content) or _META.search(content) or idle_claim):
                 # і після примітки каже «вже роблю» чи розмовляє про «інструмент/кнопку», а нічого не запустила.
                 # Лишаємо лише нормальні речення («Я не знаю адреси сайту»); решту — чесним «не зрозуміла».
                 keep = [x for x in re.split(r"(?<=[.!?…])\s+", content.strip()) if x and not (
-                    _META.search(x) or claims_action(x) or promises_more(x) or claims_work_in_progress(x))]
+                    _META.search(x) or done_claim(x) or promises_more(x))]
                 honest = (" ".join(keep) if keep else
                           IDLE_ANSWER if idle_claim else "Не зрозуміла, що саме зробити. Скажи, будь ласка, ще раз.")
                 if stream:
@@ -446,7 +480,7 @@ class Brain:
                     stream.emit(honest)
                     answer = " ".join(stream.spoken)
                 else:
-                    answer = honest
+                    answer = " ".join([*receipts, honest])
                 self.history.append({"role": "assistant", "content": honest})
                 self.last_exchange = (user_text, answer)
                 return answer
@@ -461,7 +495,10 @@ class Brain:
                     stream.flush()
                     answer = " ".join(stream.spoken) or self.polish(user_text, text_)
                 else:
-                    answer = self.polish(user_text, text_)
+                    if receipts:         # про дії вже кажуть квитанції — звіти моделі про них прибираємо
+                        text_ = " ".join(x for x in re.split(r"(?<=[.!?…])\s+", text_) if x and not done_claim(x))
+                    rest = self.polish(user_text, text_) if text_.strip() else ""
+                    answer = " ".join(x for x in [*receipts, rest] if x)
                 self.history.append({"role": "assistant", "content": answer})
                 self.last_exchange = (user_text, answer)
                 return answer
@@ -477,6 +514,11 @@ class Brain:
                 result = self.tools.call(fn["name"], fn.get("arguments") or {})
                 self.last_calls.append({"name": fn["name"], "arguments": fn.get("arguments") or {}})
                 self.last_results.append(result)
+                rc = receipt_of(fn["name"], result)
+                if rc:
+                    receipts.append(rc)
+                    if stream:
+                        stream.receipt(rc)       # «Відкрила Discord.» звучить одразу, поки модель думає далі
                 if fn["name"] == "remember":
                     self._mem_time = 0.0          # новий факт — наступного разу перечитати пам'ять
                 messages.append({"role": "tool", "tool_name": fn["name"], "content": result + STYLE_REMINDER})

@@ -71,8 +71,66 @@ def test_claimed_action_without_tool_is_retried(monkeypatch):
     called = []
     monkeypatch.setattr(b, "_chat", lambda m: next(replies))
     monkeypatch.setattr(b.tools, "call", lambda n, a: called.append((n, a)) or "Поставила на паузу «Пісня».")
-    assert b.ask("Постав, будь ласка, музику на паузу, бо дзвонять") == "Поставила на паузу."
+    # про дію каже квитанція інструмента, а не переказ моделі
+    assert b.ask("Постав, будь ласка, музику на паузу, бо дзвонять") == "Поставила на паузу «Пісня»."
     assert called == [("media", {"action": "pause"})]
+
+
+def test_receipt_replaces_models_retelling_and_keeps_the_rest(monkeypatch):
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "", "tool_calls": [{"function": {"name": "open_app", "arguments": {"name": "Discord"}}}]},
+        {"content": "Відкрила Дискорд для тебе! Пограєш із друзями?"},
+    ])
+    monkeypatch.setattr(b, "_chat", lambda m: next(replies))
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "Відкрила Discord.")
+    assert b.ask("Запусти дискорд") == "Відкрила Discord. Пограєш із друзями?"
+
+
+def test_failed_action_is_not_retold_as_done(monkeypatch):
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "", "tool_calls": [{"function": {"name": "open_app", "arguments": {"name": "Фотошоп"}}}]},
+        {"content": "Відкрила Фотошоп."},                                         # модель «не помітила» невдачі
+    ])
+    monkeypatch.setattr(b, "_chat", lambda m: next(replies))
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "Не знайшла програми «Фотошоп» серед встановлених.")
+    assert b.ask("Відкрий фотошоп") == "Не знайшла програми «Фотошоп» серед встановлених."
+
+
+def test_short_done_claim_without_tool_is_checked(monkeypatch):
+    """Так було в наборі перевірок: «зніме з паузи» → «Продовжую.», хоча нічого не виконано."""
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "Продовжую."},                                                # бреше
+        {"content": "", "tool_calls": [{"function": {"name": "media", "arguments": {"action": "play"}}}]},
+        {"content": "Продовжила."},
+    ])
+    seen = []
+    monkeypatch.setattr(b, "_chat", lambda m: seen.append(list(m)) or next(replies))
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "Продовжила «Пісня».")
+    assert b.ask("Можна далі") == "Продовжила «Пісня»."
+    assert "Системна перевірка" in seen[1][-1]["content"]
+
+
+def test_receipt_is_spoken_before_model_continues(monkeypatch):
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "", "tool_calls": [{"function": {"name": "set_reminder", "arguments": {"minutes": 1}}}]},
+        {"content": "Нагадаю вчасно. Не забудь налити повну пляшку."},
+    ])
+    said = []
+
+    def fake_chat(messages, on_delta=None, cancel=None):
+        reply = next(replies)
+        if on_delta and reply.get("content"):
+            on_delta(reply["content"] + " ")              # як потік: текст іде шматками в голос
+        return reply
+    monkeypatch.setattr(b, "_chat", fake_chat)
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "Таймер поставлено: о 18:30 нагадаю — вода.")
+    b.ask("Нагадай через хвилину про воду", on_sentence=said.append)
+    assert said[0] == "Таймер поставлено: о 18:30 нагадаю — вода."       # квитанція — першою
+    assert "Не забудь налити повну пляшку." in said
 
 
 def test_false_work_claim_is_not_spoken_when_nothing_is_being_written(monkeypatch):
@@ -117,8 +175,11 @@ def test_promise_without_result_is_followed_up(monkeypatch):
         {"content": "У папці Games: World of Tanks і CS2."},
     ])
     monkeypatch.setattr(b, "_chat", lambda m: next(replies))
-    monkeypatch.setattr(b.tools, "call", lambda n, a: "ok")
-    assert b.ask("Згорни все і подивись, що в папці Games") == "У папці Games: World of Tanks і CS2."
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "Згорнула всі вікна." if n == "window" else
+                        "У Робочий стіл\\Games: файлів 2. Файли: World of Tanks.lnk, CS2.lnk")
+    # «згорнула» каже квитанція (і вдруге модель це не повторює), вміст папки переказує модель
+    assert (b.ask("Згорни все і подивись, що в папці Games")
+            == "Згорнула всі вікна. У папці Games: World of Tanks і CS2.")
 
 
 def test_deep_think_and_ukrainian_guard(monkeypatch):

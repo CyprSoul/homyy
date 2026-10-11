@@ -35,6 +35,10 @@ CONFIRM = {"close_app", "shutdown_timer", "sleep_pc"}
 PURE = {"current_datetime", "date_difference", "recall"}           # без побічних дій — справжні
 
 
+def _host(url: str) -> str:
+    return re.sub(r"^https?://(?:www\.)?", "", url).split("/")[0] or "сайт"
+
+
 class FakeTools(Tools):
     """Ті самі описи інструментів для моделі, але виклики лише записуються."""
 
@@ -83,7 +87,7 @@ class FakeTools(Tools):
             "web_search": lambda: (f"Результати пошуку «{a.get('query', '')}» (тестова заглушка): "
                                    "1. Довідкова стаття з загальним описом теми."),
             "search_on_site": lambda: f"Відкрила пошук «{a.get('query', '')}» на {a.get('site', 'сайті')}.",
-            "open_website": lambda: f"Відкрила {a.get('url', 'сайт')}.",
+            "open_website": lambda: f"Відкрила сайт {_host(a.get('url', ''))}.",
             "read_page": lambda: "Текст сторінки (тестова заглушка): коротка новина.",
             "wiki": lambda: "Вікіпедія (тестова заглушка): коротка довідка.",
             "set_reminder": lambda: f"Таймер поставлено: о {at} нагадаю — {a.get('text') or 'час вийшов'}.",

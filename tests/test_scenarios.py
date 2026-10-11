@@ -299,9 +299,10 @@ def test_background_tool_promise_is_not_nudged():
         {"content": "ЗАЙВА ДРУГА ВІДПОВІДЬ"}])
     b._chat = lambda messages, **k: next(replies)
     b._memories = lambda: []
-    b.tools.call = lambda name, args: "Передала завдання."
+    b.tools.call = lambda name, args: ("Передала завдання «т» програмісту Gemini; коли файл буде готовий — сама скажу "
+                                       "й відкрию. (Службове: скажи лише це одним реченням.)")
     answer = b.ask("Напиши сторінку для тренувань")
-    assert "ЗАЙВА" not in answer and "Gemini" in answer
+    assert "ЗАЙВА" not in answer and "Gemini" in answer and "Службове" not in answer
 
 
 def test_claims_without_tool_twice_becomes_honest(monkeypatch, tmp_path):

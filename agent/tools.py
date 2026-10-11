@@ -8,7 +8,7 @@ import sys
 import webbrowser
 from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import requests
 
@@ -422,7 +422,8 @@ class Tools(PcTools):
         if not url.startswith(("http://", "https://")):
             return "Можна відкривати лише адреси, що починаються з http:// або https://."
         webbrowser.open(url)
-        return f"Відкрила {url}."
+        host = urlparse(url).netloc.removeprefix("www.") or url
+        return f"Відкрила сайт {host}."               # це звучить уголос — без читання довгої адреси
 
     def _t_mark_game(self, is_game: bool) -> str:
         from .gamewatch import foreground, remember
