@@ -22,6 +22,7 @@ from .config import AGENT_DIR, load_config
 DIR = AGENT_DIR / "stt_test"
 OUT = AGENT_DIR / "stt_bench.txt"
 MIN_SPEECH = 0.5
+MIN_LOUD = 0.4          # менше секунд чутного звуку в записі — це не фраза
 
 PHRASES = [
     "Постав музику на паузу.",
@@ -79,6 +80,16 @@ def word_errors(ref: str, hyp: str) -> int:
     return prev[-1]
 
 
+def loud_seconds(pcm: np.ndarray, floor_db: float = -45.0) -> float:
+    """Скільки секунд у записі гучніше за floor_db (кадри по 30 мс): тиша й шум мікрофона не рахуються."""
+    x = pcm.astype(np.float32) / 32768.0
+    n = len(x) // 480
+    if n == 0:
+        return 0.0
+    rms = np.sqrt(np.mean(x[:n * 480].reshape(n, 480) ** 2, axis=1))
+    return float((20 * np.log10(rms + 1e-9) > floor_db).sum() * 0.03)
+
+
 def save_wav(path, pcm: np.ndarray):
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
@@ -112,6 +123,9 @@ def record(cfg):
                 print("   …нічого не почула, ще раз")
             elif seg[1] < MIN_SPEECH:
                 print(f"   ✗ надто коротко ({seg[1]:.1f} с мовлення) — ще раз")
+            elif loud_seconds(seg[0]) < MIN_LOUD:
+                # VAD іноді вважає «мовленням» майже тишу — такі записи раніше потрапляли в набір порожніми
+                print(f"   ✗ майже тиша ({loud_seconds(seg[0]):.1f} с чутного звуку) — читай гучніше й ближче до мікрофона")
             else:
                 save_wav(DIR / f"{i + 1:02d}.wav", seg[0])
                 print(f"   ✓ записала ({len(seg[0]) / 16000:.1f} с)")

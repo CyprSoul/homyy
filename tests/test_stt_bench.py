@@ -1,4 +1,15 @@
-from agent.stt_bench import PHRASES, normalize, word_errors
+import numpy as np
+
+from agent.stt_bench import PHRASES, loud_seconds, normalize, word_errors
+
+
+def test_loud_seconds_ignores_silence_and_counts_speech():
+    rate = 16000
+    silence = np.zeros(rate, dtype=np.int16)                                   # 1 с повної тиші
+    quiet_noise = (np.random.default_rng(0).standard_normal(rate) * 3).astype(np.int16)   # ≈ −80 дБ
+    tone = (np.sin(np.linspace(0, 2000 * np.pi, rate)) * 3000).astype(np.int16)           # ≈ −23 дБ, 1 с
+    assert loud_seconds(silence) == 0 and loud_seconds(quiet_noise) == 0
+    assert 0.9 <= loud_seconds(np.concatenate([silence, tone, silence])) <= 1.05
 
 
 def test_normalize_ignores_case_punctuation_and_latin_brands():
