@@ -190,7 +190,7 @@ class Audio:
             self.frames.get_nowait()
 
     def listen(self, end_silence_ms: int, max_seconds: float, start_timeout_s: float | None = None,
-               interrupt=None, abort=None, turn=None, max_silence_ms: int = 2500):
+               interrupt=None, abort=None, turn=None, max_silence_ms: int = 2500, pre_roll_ms: int = 300):
         """Чекає на мовлення й записує його до паузи.
 
         Повертає (int16-масив, тривалість мовлення в секундах), None — якщо за
@@ -202,7 +202,8 @@ class Audio:
         """
         self.last_turn = None                              # (ймовірність, після скількох мс тиші) — для журналу
         self.last_end = None                               # чому закінчила слухати: turn / silence / limit
-        pre_roll = collections.deque(maxlen=10)            # 300 мс до початку мовлення
+        # звук ДО того, як VAD упевнився в мовленні (м'які початки слів «Вимкни», «Згорни» VAD бачить пізно)
+        pre_roll = collections.deque(maxlen=max(3, pre_roll_ms // FRAME_MS))
         start_frames_needed = 3                            # 90 мс мовлення = старт
         end_frames_needed = end_silence_ms // FRAME_MS
         waited = 0

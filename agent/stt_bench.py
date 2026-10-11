@@ -98,13 +98,16 @@ def record(cfg):
     DIR.mkdir(exist_ok=True)
     todo = [i for i in range(len(PHRASES)) if not (DIR / f"{i + 1:02d}.wav").exists()]
     print(f"\nЧитай фрази так, як говориш із Хомі в житті. Лишилось {len(todo)} з {len(PHRASES)}.")
-    print("Після сигналу читай фразу цілком, потім помовч. Не вийшло — просто скажи ще раз.\n", flush=True)
+    print("Сигналу нема: фраза з'явилась — читай, коли готовий, цілком, потім помовч 2 секунди.")
+    print("Не вийшло — просто скажи ще раз.\n", flush=True)
     for i in todo:
         while True:
             print(f"[{i + 1}/{len(PHRASES)}] «{PHRASES[i]}»", flush=True)
+            # без сигналу: beep() стирав те, що ти починав говорити під час нього, і зрізав перші слова;
+            # запис просто слухає, тож читай, коли готовий. Довша пауза й буфер перед початком — для довгих фраз
+            time.sleep(0.8)
             audio.drain()
-            audio.beep(up=True)
-            seg = audio.listen(end_silence_ms=1200, max_seconds=15, start_timeout_s=12)
+            seg = audio.listen(end_silence_ms=1800, max_seconds=20, start_timeout_s=15, pre_roll_ms=600)
             if seg is None:
                 print("   …нічого не почула, ще раз")
             elif seg[1] < MIN_SPEECH:
