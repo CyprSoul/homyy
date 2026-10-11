@@ -254,6 +254,10 @@ def test_dialog_fixes():
     assert not foreign_speech("тобі варто дивитися в бік", her)
     assert promises_more("Це круто. Хочеш, я знайду конкретні приклади коду?")
     assert promises_more("Я можу пошукати для тебе конкретні назви програм.")
+    assert promises_more("Зрозуміла, зроблю шапку компактнішою. Зараз усе виправлю.")     # лог 11.10: обіцяла й нічого не запустила
+    assert promises_more("Добре, зроблю її меншою.")
+    assert not promises_more("Почала правити сторінку. Коли буде готово — сама скажу.")      # після інструмента
+    assert not promises_more("Зрозуміла. Яку саме шапку ти хочеш?")
 
 
 def test_is_repeat():

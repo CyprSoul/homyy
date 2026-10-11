@@ -151,6 +151,10 @@ def expand(pattern: str) -> str:
     hm = "|".join(rf"(?:{number_alts(t.hour)}\W+(?:годин\w*\W+)?{number_alts(t.minute)}|{t:%H}:{t:%M}|{t.hour}:{t:%M}"
                   + (rf"|{number_alts(t.hour)}\W+годин\w*(?!\W+\w+\s+хвилин))" if t.minute == 0 else ")")
                   for t in near)                     # о 23:00 «двадцять три години» — правильно
+    if now.hour == 0 or (now + timedelta(minutes=1)).hour == 0:
+        # опівночі кажуть «дванадцята (година) дев'ять хвилин ночі» і «дванадцять хвилин першої» — обидва правильно
+        mins = "|".join(number_alts(t.minute) for t in near)
+        hm += rf"|дванадцят\w*\W+(?:годин\w*\W+)?(?:{mins})|(?:{mins})\W+хвилин\w*\W+перш\w*"
     ny = (datetime(now.year + 1, 1, 1).date() - now.date()).days
     return pattern.replace("{now}", f"(?:{hm})").replace("{days_to_new_year}", number_alts(ny))
 
@@ -375,10 +379,13 @@ def main():
     model = cfg["ollama"]["model"]
     if not reflex_only:
         import requests
+        from .config import ollama_options
         for attempt in range(3):          # прогрів: перший запит після зміни моделі у відеокарті інколи падає
             try:
+                # ті самі options, що в Brain: інакше Ollama перезавантажує модель (~21 с) і перший кейс здається повільним
                 requests.post(f"{cfg['ollama']['url']}/api/generate", timeout=300,
-                              json={"model": model, "prompt": "", "keep_alive": "15m"}).raise_for_status()
+                              json={"model": model, "prompt": "", "keep_alive": "15m",
+                                    "options": ollama_options(cfg)}).raise_for_status()
                 break
             except requests.RequestException as ex:
                 print(f"прогрів моделі, спроба {attempt + 1}: {str(ex)[:100]}", flush=True)
