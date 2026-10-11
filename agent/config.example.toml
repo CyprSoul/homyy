@@ -14,8 +14,8 @@ keep_alive = "24h"       # тримати Gemma у відеокарті; «Па�
 num_thread = 8           # ядра процесора для частини Gemma, що не влізла у відеокарту (8 = лише швидкі P-ядра, мишка не лагає)
 
 [stt]
-engine = "parakeet"            # NVIDIA Parakeet v3 на процесорі, ~0.1 с (точніший на твоєму голосі); "canary"; "whisper" — ~3 с
-fallback_engine = "canary"     # Parakeet інколи вгадує не ту мову — тоді перепитує Canary з примусовою українською (~0.2 с)
+engine = "canary"              # NVIDIA Canary на процесорі, ~0.5 с, мова примусово українська (заміряно на 30 твоїх фразах: 19.6% помилок проти 27.9% у Parakeet, який інколи видає російську/польську); "parakeet" — 0.15 с; "whisper" — ~4 с
+fallback_engine = "none"       # для engine = "parakeet": "canary" — перепитує Canary, коли Parakeet вгадав не ту мову
 whisper_fallback = false       # ще й Whisper як останній запасний (+1 ГБ пам'яті)
 wake_model = "small"           # маленька модель — лише щоб почути «Хомі»
 model = "large-v3-turbo"       # точна модель для команд
