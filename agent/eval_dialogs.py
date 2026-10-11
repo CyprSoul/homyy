@@ -299,6 +299,59 @@ def run_diary(cfg: dict) -> None:
     print(f"\nПРОЙДЕНО {ok} з {len(cases)}")
 
 
+_EMOJI_RX = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
+_STOCK_RX = re.compile(r"я вже тут|в строю|в нормі|в повній формі|нарешті я|готова до справ")
+
+
+def greeting_metrics(greetings: list[str]) -> dict:
+    """Наскільки однотипні привітання: схожість між усіма парами, різні початки, повторювані звороти."""
+    from difflib import SequenceMatcher
+    low = [g.lower() for g in greetings]
+    pairs = [SequenceMatcher(None, a, b).ratio() for i, a in enumerate(low) for b in low[i + 1:]]
+    starts = {" ".join(re.findall(r"[\w']+", g)[:2]) for g in low}
+    n = max(1, len(greetings))
+
+    def pct(flags) -> str:
+        return f"{sum(flags) * 100 // n}%"
+    return {"n": len(greetings),
+            "середня схожість пар": round(sum(pairs) / max(1, len(pairs)), 2),
+            "найбільша схожість": round(max(pairs, default=0), 2),
+            "різних початків (2 слова)": f"{len(starts)} з {len(greetings)}",
+            "«Привіт, Ігорю»": pct(g.startswith("привіт, ігорю") for g in low),
+            "«я вже тут / в строю / в нормі»": pct(bool(_STOCK_RX.search(g)) for g in low),
+            "про ігри": pct("ігр" in g for g in low),
+            "емодзі": pct(bool(_EMOJI_RX.search(g)) for g in greetings),
+            "питання": pct("?" in g for g in greetings),
+            "середня довжина, слів": round(sum(len(g.split()) for g in greetings) / n, 1)}
+
+
+def run_greet(cfg: dict, n: int) -> None:
+    """--greet [N]: N привітань підряд (як N запусків Хомі) і числа однотипності."""
+    import inspect
+    import tempfile
+    from .brain import Brain
+    brain = Brain(cfg)
+    brain.GREET_FILE = Path(tempfile.mkdtemp()) / "greetings.json"          # не чіпаємо справжню історію привітань
+    varies = "now" in inspect.signature(brain.greet).parameters
+    # запуски впродовж одного дня, як у житті: різна пора, інколи кілька перезапусків підряд (о 23:xx)
+    hours = [7.2, 9.1, 12.0, 14.3, 17.5, 19.2, 21.0, 22.4, 22.6, 23.1, 23.3, 23.5]
+    print(f"Модель: {cfg['ollama']['model']} · привітань: {n}{' · пори доби змінюються' if varies else ''}\n", flush=True)
+    out = []
+    for i in range(n):
+        h = hours[i % len(hours)]
+        kw = {"now": datetime.now().replace(hour=int(h), minute=int(h % 1 * 60), second=0, microsecond=0)} if varies else {}
+        g = brain.greet(**kw) or "(не вийшло)"
+        out.append(g)
+        print(f"{i + 1:2d}. {g}", flush=True)
+    print("\n=== однотипність ===")
+    for k, v in greeting_metrics(out).items():
+        print(f"  {k}: {v}")
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    (RESULTS / f"greetings-{datetime.now():%Y%m%d-%H%M}.json").write_text(
+        json.dumps({"model": cfg["ollama"]["model"], "greetings": out, "metrics": greeting_metrics(out)},
+                   ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -306,6 +359,10 @@ def main():
     cfg = load_config()
     if "--model" in args:
         cfg["ollama"]["model"] = args[args.index("--model") + 1]
+    if "--greet" in args:
+        i = args.index("--greet")
+        run_greet(cfg, int(args[i + 1]) if len(args) > i + 1 and args[i + 1].isdigit() else 12)
+        return
     if "--diary" in args:
         run_diary(cfg)
         return

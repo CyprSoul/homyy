@@ -361,14 +361,14 @@ def test_greet_in_own_words_and_not_repeating(monkeypatch, tmp_path):
     monkeypatch.setattr(b, "_memories", lambda: [])
     monkeypatch.setattr(Brain, "GREET_FILE", tmp_path / "g.json")
     sent = []
-    replies = iter(["Ігоре, я прокинулась і вже тут — як твій вечір?", "Привіт-привіт! Усе завантажила, слухаю тебе."])
+    replies = iter(["Ігоре, ну що, нова ніч починається.", "Привіт-привіт, слухаю тебе уважно."])   # без «?»: питання дозволені не завжди
 
     def fake_post(url, timeout=None, json=None):
         sent.append(json["messages"][-1]["content"])
         return type("R", (), {"raise_for_status": lambda self: None,
                               "json": lambda self, t=next(replies): {"message": {"content": t}}})()
-    monkeypatch.setattr("agent.brain.requests.post", fake_post)
+    monkeypatch.setattr("agent.greet.requests.post", fake_post)
     first = b.greet()
     second = b.greet()
     assert first and second and first != second
-    assert first in sent[1]                                    # друге привітання знає перше і не повторює
+    assert first not in sent[1]            # старі привітання моделі НЕ показуємо: вони ставали зразком для наслідування
