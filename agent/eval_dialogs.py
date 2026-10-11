@@ -261,6 +261,8 @@ def main():
     if "--model" in args:
         cfg["ollama"]["model"] = args[args.index("--model") + 1]
     only = args[args.index("--only") + 1] if "--only" in args else None
+    if "--tools" in args:                    # subset — лише доречні інструменти (agent/toolsets.py), all — усі
+        cfg["ollama"]["tool_select"] = args[args.index("--tools") + 1] == "subset"
     reflex_only = "--reflex" in args
     from .brain import Brain
     cases = load_cases(only)
@@ -275,7 +277,9 @@ def main():
             except requests.RequestException as ex:
                 print(f"прогрів моделі, спроба {attempt + 1}: {str(ex)[:100]}", flush=True)
                 time.sleep(5)
-    print(f"Модель: {model} · перевірок: {len(cases)}{' · лише швидкі команди' if reflex_only else ''}\n", flush=True)
+    tools_mode = "лише доречні інструменти" if cfg["ollama"].get("tool_select") else "усі інструменти"
+    print(f"Модель: {model} · {tools_mode} · перевірок: {len(cases)}{' · лише швидкі команди' if reflex_only else ''}\n",
+          flush=True)
     results = []
     for c in cases:
         r = run_case(c, cfg, Brain, reflex_only)

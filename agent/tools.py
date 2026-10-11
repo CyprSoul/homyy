@@ -122,6 +122,13 @@ class Tools(PcTools):
         own = [s for s in self.base_schemas() + self.pc_schemas(_schema) if s["function"]["name"] not in off]
         return own + (MCP_HUB.schemas() if MCP_HUB else [])       # + інструменти MCP-конекторів
 
+    def schemas_for(self, text: str, recent: str = "") -> list[dict]:
+        """Лише ті описи, що стосуються цього питання (agent/toolsets.py), — якщо [ollama] tool_select = true."""
+        if not self.cfg.get("ollama", {}).get("tool_select", False):
+            return self.schemas()
+        from .toolsets import select_tools
+        return select_tools(self.schemas(), text, recent)
+
     def base_schemas(self) -> list[dict]:
         apps = ", ".join(self.apps) or "немає"
         return [

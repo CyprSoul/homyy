@@ -223,6 +223,7 @@ class Brain:
         self._mem_cache: list[str] = []
         self._mem_time = 0.0
         self.remember_in_background = True    # запис у пам'ять не гальмує відповідь (набір перевірок вимикає)
+        self._tools_now: list[dict] | None = None   # описи інструментів для поточного питання (agent/toolsets.py)
         self.auto_memories: list[str] = []    # що запам'ятала сама на останнє питання (для журналу)
 
     def _memories(self) -> list[str]:
@@ -267,7 +268,7 @@ class Brain:
             return self._chat_stream(messages, on_delta, cancel)
         o = self.cfg["ollama"]
         payload = {
-            "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
+            "model": o["model"], "messages": messages, "tools": self._tools_now or self.tools.schemas(),
             "stream": False, "think": self.deep, "keep_alive": o.get("keep_alive", "30m"),
             "options": ollama_options(self.cfg, temperature=o.get("temperature", 0.4),
                                       # голосом — коротко; у режимі «подумай» ще й місце на роздуми
@@ -290,7 +291,7 @@ class Brain:
     def _payload(self, messages: list[dict], stream: bool) -> dict:
         o = self.cfg["ollama"]
         return {
-            "model": o["model"], "messages": messages, "tools": self.tools.schemas(),
+            "model": o["model"], "messages": messages, "tools": self._tools_now or self.tools.schemas(),
             "stream": stream, "think": self.deep, "keep_alive": o.get("keep_alive", "30m"),
             "options": ollama_options(self.cfg, temperature=o.get("temperature", 0.4),
                                       num_predict=int(o.get("voice_max_tokens", 160)) + (3000 if self.deep else 0)),
@@ -481,6 +482,9 @@ class Brain:
         self.stats = []
         self.tools.last_user_text = user_text          # для перевірки «так» на небезпечні дії
         self.history.append({"role": "user", "content": user_text})
+        # які інструменти показати моделі: за цим питанням і попередньою реплікою («так» після «Закрити Discord?»)
+        recent = " ".join(str(m.get("content", "")) for m in self.history[:-1][-2:])
+        self._tools_now = self.tools.schemas_for(user_text, recent)
         # Час — у поточне питання, а не в інструкції: так незмінні інструкції Ollama бере з кешу.
         bg = self.tools.background_status()
         self.auto_memories = []
