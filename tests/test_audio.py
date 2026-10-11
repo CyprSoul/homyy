@@ -79,6 +79,20 @@ def test_loud_enough_ignores_quiet_noise(monkeypatch):
     assert a.loud_enough(voice)
 
 
+def test_command_loud_enough_accepts_quiet_speech_but_not_silence(monkeypatch):
+    monkeypatch.setattr(audio_mod.sd, "RawInputStream", FakeIn, raising=False)
+    monkeypatch.setattr(audio_mod.sd, "OutputStream", FakeOut, raising=False)
+    monkeypatch.setattr(audio_mod, "webrtcvad", type("V", (), {"Vad": lambda *a: None}))
+    a = audio_mod.Audio({})
+    a._levels.extend([1e-5] * 300)                      # гарнітура з шумозаглушенням: між фразами цифрова тиша
+    rng = np.random.default_rng(0)
+    quiet_voice = (rng.normal(0, 0.006, 16000) * 32768).astype(np.int16)    # тиха мова, ≈ −44 дБ
+    silence = (rng.normal(0, 0.0001, 16000) * 32768).astype(np.int16)       # ≈ −80 дБ
+    assert not a.loud_enough(quiet_voice)               # старий поріг відкидав таку мову як «шум»
+    assert a.command_loud_enough(quiet_voice)
+    assert not a.command_loud_enough(silence)
+
+
 class FakeVad:
     def is_speech(self, frame, rate):
         return any(frame[:4])

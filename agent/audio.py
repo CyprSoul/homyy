@@ -51,6 +51,7 @@ class Audio:
     def __init__(self, cfg: dict):
         a = cfg.get("audio", {})
         self.vad = webrtcvad.Vad(int(a.get("vad_aggressiveness", 2)))
+        self.command_floor = float(a.get("command_min_level", 0.003))
         self.frames: queue.Queue[bytes] = queue.Queue()
         self.mic_level = 0.0
         self._play_env = None            # (час старту, гучність по 50 мс) того, що зараз звучить
@@ -168,6 +169,11 @@ class Audio:
         frames = np.sqrt(np.mean(x[:n * FRAME_SAMPLES].reshape(n, FRAME_SAMPLES) ** 2, axis=1))
         level = float(np.percentile(frames, 70))
         return level > max(floor, factor * self.noise_floor())
+
+    def command_loud_enough(self, pcm, factor: float = 3.0) -> bool:
+        """Як loud_enough, але з нижчим порогом для твоїх КОМАНД. Гарнітура з шумозаглушенням дає цифрову тишу
+        між фразами, а тиха мова (−42…−50 дБ) із порогом 0.008 відкидалась як «шум»: 7 з 30 команд."""
+        return self.loud_enough(pcm, factor=factor, floor=getattr(self, "command_floor", 0.003))
 
     def arm_barge_in(self, on: bool):
         """Під час відповіді Хомі: стежити, чи не заговорив ти поверх неї."""
