@@ -1,0 +1,55 @@
+[
+  {"id": "reflex-pause", "say": "Хоми, постав на паузу.", "expect": {"route": "reflex", "tools_any": ["media"]}, "why": "лог 06.10"},
+  {"id": "reflex-unpause", "say": "зніме з паузи", "expect": {"route": "reflex", "tools_any": ["media"]}, "why": "лог 06.10, так розпізнало «зніми з паузи»"},
+  {"id": "reflex-pause-garbled", "say": "Хобби, постав на паузу.", "expect": {"route": "reflex", "tools_any": ["media"]}, "why": "лог 06.10"},
+  {"id": "reflex-folder-games", "say": "Відкрий на робочому столі папку Games і подивись, які в мене є ігри.", "expect": {"tools_any": ["list_folder", "open_folder"]}, "why": "лог 06.10: просив кілька разів"},
+  {"id": "reflex-click", "say": "Натисніть кнопку I do not agree.", "expect": {"route": "reflex", "tools_any": ["click_on_screen"]}, "why": "лог 06.10"},
+  {"id": "reflex-selection", "say": "Так, дивися на екран, я виділив текст. Переклади.", "expect": {"route": "reflex"}, "why": "лог 06.10: переклад виділеного"},
+
+  {"id": "page-open-reflex", "say": "Відкрий сторінку трекера.", "state": {"page_task": true}, "expect": {"route": "reflex", "tools_any": ["open_page"]}, "why": "лог 11.10"},
+  {"id": "page-status-reflex", "say": "Як там сторінка?", "expect": {"route": "reflex", "tools_any": ["page_status"]}, "why": "лог 11.10"},
+  {"id": "page-status-garbled", "say": "- Як там, Стеринко?", "state": {"page_task": true}, "history": [["user", "Відкрий сторінку трекера."], ["assistant", "Відкрила сторінку «тренування_ігоря»."]], "expect": {"tools_any": ["page_status", "open_page"]}, "why": "лог 11.10: так Canary почув «Як там сторінка?», Хомі відповіла «Все добре, щось трапилося?»"},
+  {"id": "page-want-see", "say": "Ну, хочу подивитися на сторінку трекера.", "state": {"page_task": true}, "expect": {"tools_any": ["open_page"]}, "why": "лог 11.10: відповіла «ще не закінчила писати»"},
+  {"id": "page-open-her", "say": "Щодо наших сторінок, відкрий, будь ласка, її.", "state": {"page_task": true}, "expect": {"tools_any": ["open_page"]}, "why": "лог 11.10: шукала «трекер» і не знайшла"},
+  {"id": "page-new", "say": "Потрібно написати нову сторінку по тренуванню.", "expect": {}, "why": "лог 08.10: казала «я вже готую код», нічого не запустивши"},
+  {"id": "page-why-failed", "say": "Чому не вийшло?", "state": {"page_task": true}, "history": [["user", "Вона не готова. Давай, почне створювати."], ["assistant", "Почала писати сторінку «трекер тренувань». Коли буде готово — сама скажу й відкрию."]], "expect": {"forbid_tools": ["make_page"]}, "why": "лог 08.10: на це питання щоразу запускала сторінку заново"},
+  {"id": "page-keeps-word", "say": "А ти дотримуєшся того, що ти робиш?", "state": {"page_task": true}, "history": [["user", "Далі вправи, які потрібно робити."], ["assistant", "Я вже почала створювати твій трекер, скоро все буде готово і я його відкрию!"]], "expect": {"forbid_tools": ["make_page"]}, "why": "лог 08.10: запустила make_page ще раз"},
+  {"id": "page-how-are-you", "say": "То як справи?", "state": {"page_task": true}, "history": [["user", "А ти дотримуєшся того, що ти робиш?"], ["assistant", "Звісно, я тримаю слово."]], "expect": {"forbid_tools": ["make_page"]}, "why": "лог 08.10: «я якраз закінчую код… шліфую дизайн» — вигадка"},
+  {"id": "page-exists", "say": "А вона існує?", "state": {"page_task": true}, "history": [["user", "Щодо нашої сторінки тренувань."], ["assistant", "Слухаю, що з нею?"]], "expect": {"answer_not": "(не існує|не знайшла|немає такої|нема такої|ще не створ)", "forbid_tools": ["make_page"]}, "why": "лог 11.10: сторінка є — не можна казати, що нема, чи писати заново"},
+  {"id": "page-wrong-site", "say": "Ти відкрила якийсь лівий сайт.", "state": {"page_task": true}, "history": [["user", "Так, покажи трекер."], ["assistant", "Відкрила сторінку «тренування_ігоря»."]], "expect": {"forbid_tools": ["make_page"]}, "why": "лог 08.10: вирішила писати сторінку заново"},
+  {"id": "page-retry-reflex", "say": "Сторінка ще не готова, спробуй ще раз написати.", "state": {"page_task": true}, "expect": {"route": "reflex", "tools_any": ["make_page"]}, "why": "лог 08.10"},
+
+  {"id": "app-discord", "say": "Запусти дискорд.", "expect": {"tools_any": ["open_app"]}, "why": "лог 06.10"},
+  {"id": "app-calc", "say": "Хоми, запусти калькулятор.", "expect": {"tools_any": ["open_app"]}, "why": "лог 06.10"},
+  {"id": "app-steam", "say": "Хомі запустити Стім.", "expect": {"tools_any": ["open_app"]}, "why": "лог 06.10"},
+  {"id": "app-close-discord", "say": "Хомі, закрий дискорд.", "expect": {"tools_any": ["close_app"], "answer_has": "\\?"}, "why": "лог 06.10: має перепитати, а не казати «закрила»"},
+  {"id": "app-close-confirm", "say": "Так, можеш, закривай.", "state": {"awaiting": ["close_app", {"name": "discord"}]}, "expect": {"route": "reflex", "tools_any": ["close_app"]}, "why": "лог 06.10"},
+
+  {"id": "music-on", "say": "Увімкни музику в YouTube Music.", "expect": {"tools_any": ["play_music", "open_website", "search_on_site"]}, "why": "лог 06.10"},
+  {"id": "music-song", "say": "Постав якусь пісню.", "expect": {"tools_any": ["play_music"]}, "why": "лог 06.10"},
+
+  {"id": "search-borsch", "say": "Знайди на Ютубі рецепт борщу.", "expect": {"tools_any": ["search_on_site", "open_website", "web_search", "play_music"]}, "why": "лог 06.10"},
+  {"id": "search-weather", "say": "Яка завтра погода в Києві?", "expect": {"tools_any": ["web_search", "read_page"]}, "why": "типове питання"},
+  {"id": "search-english-news", "say": "Відкрий, будь ласка, англійський сайт для прикладу, новини англійською.", "expect": {"tools_any": ["open_website", "search_on_site"]}, "why": "лог 06.10"},
+
+  {"id": "reminder-water", "say": "Нагадай через хвилину піти взяти пляшку з водою.", "expect": {"tools_any": ["set_reminder"]}, "why": "лог 06.10"},
+
+  {"id": "screen-look", "say": "Подивись, що у мене на екрані.", "expect": {"tools_any": ["look_at_screen"]}, "why": "лог 06.10"},
+  {"id": "screen-click-cookies", "say": "Тоді просто не погоджуйся з куками, натисни кнопку.", "history": [["user", "Подивись, що у мене на екрані."], ["assistant", "На екрані браузер зі сторінкою новин, кнопки «I agree» і «I do not agree»."]], "expect": {"tools_any": ["click_on_screen"]}, "why": "лог 06.10"},
+
+  {"id": "power-shutdown", "say": "Буду лягати спати. Закрий всі програми і виключи комп'ютер.", "expect": {"tools_any": ["shutdown_timer"], "answer_has": "\\?"}, "why": "лог 08.10: має перепитати"},
+  {"id": "power-confirm", "say": "Так, вимикай.", "state": {"awaiting": ["shutdown_timer", {"minutes": 0}]}, "expect": {"route": "reflex", "tools_any": ["shutdown_timer"]}, "why": "лог 08.10"},
+
+  {"id": "time-now", "say": "Котра година?", "expect": {"no_tools": true, "answer_has": "{now}"}, "why": "лог 06.10: правильний час (цифрами чи словами)"},
+  {"id": "time-garbled", "say": "Хом я котра година?", "expect": {"answer_has": "{now}"}, "why": "лог 06.10, так розпізнало; правильний час"},
+  {"id": "date-newyear", "say": "Скільки днів до Нового року?", "expect": {"answer_has": "{days_to_new_year}"}, "why": "типове питання; правильне число днів"},
+
+  {"id": "memory-fact", "say": "Я люблю грати комп'ютерні ігри.", "expect": {}, "why": "лог 06.10: казала «запам'ятала», не запам'ятавши"},
+  {"id": "memory-yesterday", "say": "Ти пам'ятаєш, про що ми з тобою вчора говорили?", "expect": {}, "why": "лог 06.10"},
+
+  {"id": "chat-space", "say": "Розкажи про космос.", "expect": {"no_tools": true}, "why": "лог 06.10"},
+  {"id": "chat-health", "say": "Хомі, а скільки води треба пити за день?", "expect": {}, "why": "типове питання про здоров'я"},
+  {"id": "chat-russian-input", "say": "Расскажи про космос.", "expect": {"no_tools": true}, "why": "лог 06.10: розпізнавач видав російською — відповідь має бути українською"},
+  {"id": "chat-bye", "say": "Дякую, поки все.", "expect": {"no_tools": true}, "why": "лог 06.10"},
+  {"id": "noise-subtitles", "say": "Субтитрувальниця Оля Шор", "expect": {"no_tools": true}, "why": "лог 06.10: так Canary «чує» тишу"}
+]
