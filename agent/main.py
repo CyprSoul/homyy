@@ -730,7 +730,7 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     # Інакше (Parakeet/Canary на процесорі) Gemma, що вже в пам'яті після минулого запуску, лишається —
     # перезапуск Хомі займає секунди, а не ~25 с.
 
-    from .audio import Audio
+    from .audio import Audio, speech_level
     from .brain import Brain
     from .stt import STT
     from .tts import Speaker
@@ -873,6 +873,8 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
         pcm, speech_s = seg
         if speech_s < min_s * 0.8:          # явно коротке — навіть не розпізнаємо
             continue
+        if not audio.wake_loud_enough(pcm):  # клацання клавіатури/миші, шум: ні детектор, ні Whisper не питаємо
+            continue
         t0 = time.time()
         long_phrase = len(pcm) > 1.6 * 16000          # «Хомі, яка погода?» — звертання на початку
         if detector:
@@ -892,7 +894,8 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
                          (is_wake(heard, speech_s, 0.0, max_words) or split_wake(heard) is not None))
                         or (score >= detector.threshold * 0.8 and is_wake(heard, speech_s, min_s, max_words)))
             log("почула" if woke else "не те",
-                f"«{heard or 'Хооміі'}» ({speech_s:.1f} с, схожість {score:.2f}, вирішила за {time.time() - t0:.2f} с)")
+                f"«{heard or 'Хооміі'}» ({speech_s:.1f} с, схожість {score:.2f}, гучність {speech_level(pcm):.3f}, "
+                f"вирішила за {time.time() - t0:.2f} с)")
         else:
             heard = stt.wake(pcm)
             woke = is_wake(heard, speech_s, min_s, max_words)

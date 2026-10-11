@@ -93,6 +93,31 @@ def test_command_loud_enough_accepts_quiet_speech_but_not_silence(monkeypatch):
     assert not a.command_loud_enough(silence)
 
 
+def test_typing_does_not_wake_but_a_quiet_real_call_does(monkeypatch):
+    """Заміряно 11.10: друк на клавіатурі ≤0.0008, справжні «Хооміі» ≥0.006 (з 71); Whisper на шумі повторює підказку «Хомі»."""
+    monkeypatch.setattr(audio_mod.sd, "RawInputStream", FakeIn, raising=False)
+    monkeypatch.setattr(audio_mod.sd, "OutputStream", FakeOut, raising=False)
+    monkeypatch.setattr(audio_mod, "webrtcvad", type("V", (), {"Vad": lambda *a: None}))
+    a = audio_mod.Audio({})
+    rng = np.random.default_rng(1)
+
+    def clip(floor, word_amp=0.0, word_s=0.0, clicks=()):
+        x = rng.normal(0, floor, 3 * 16000)
+        if word_amp:
+            x[16000:16000 + int(word_s * 16000)] += rng.normal(0, word_amp, int(word_s * 16000))
+        for at, amp in clicks:                                          # одиночний гучний удар по клавіші
+            x[at:at + 200] += rng.normal(0, amp, 200)
+        return (np.clip(x, -1, 1) * 32768).astype(np.int16)
+
+    typing = clip(0.0003, clicks=[(8000, 0.2), (30000, 0.2)])           # шум ≈ −70 дБ і два гучні клацання
+    quiet_call = clip(0.0005, word_amp=0.007, word_s=0.6)               # тихе «Хооміі» з паузами навколо
+    loud_call = clip(0.0005, word_amp=0.03, word_s=0.8)
+    assert audio_mod.speech_level(typing) < 0.001                       # клацання (кілька кадрів) гучності не додають
+    assert not a.wake_loud_enough(typing)
+    assert a.wake_loud_enough(quiet_call) and a.wake_loud_enough(loud_call)
+    assert audio_mod.speech_level(np.zeros(100, dtype=np.int16)) == 0.0     # коротше за кадр — не падаємо
+
+
 class FakeVad:
     def is_speech(self, frame, rate):
         return any(frame[:4])

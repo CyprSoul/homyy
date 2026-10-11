@@ -12,6 +12,18 @@ RATE = 16000
 FRAME_MS = 30
 OUT_RATE = 48000                 # частота виходу звуку (усе перераховуємо в неї)
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
+SUSTAINED_FRAMES = 5             # слово триває ≥150 мс; клацання клавіші — 1–3 кадри
+
+
+def speech_level(pcm) -> float:
+    """Стійка гучність запису (0..1): rms п'ятого найгучнішого кадра в 30 мс, тобто те, що тримається ≥150 мс.
+    Клацання клавіші чи миші коротке й гучності не додає, а паузи навколо слова її не знижують."""
+    x = pcm.astype(np.float32) / 32768.0
+    n = len(x) // FRAME_SAMPLES
+    if n == 0:
+        return 0.0
+    frames = np.sqrt(np.mean(x[:n * FRAME_SAMPLES].reshape(n, FRAME_SAMPLES) ** 2, axis=1))
+    return float(np.sort(frames)[::-1][min(SUSTAINED_FRAMES - 1, n - 1)])
 
 
 class DoubleTalk:
@@ -52,6 +64,7 @@ class Audio:
         a = cfg.get("audio", {})
         self.vad = webrtcvad.Vad(int(a.get("vad_aggressiveness", 2)))
         self.command_floor = float(a.get("command_min_level", 0.003))
+        self.wake_floor = float(a.get("wake_min_level", 0.002))
         self.frames: queue.Queue[bytes] = queue.Queue()
         self.mic_level = 0.0
         self._play_env = None            # (час старту, гучність по 50 мс) того, що зараз звучить
@@ -174,6 +187,11 @@ class Audio:
         """Як loud_enough, але з нижчим порогом для твоїх КОМАНД. Гарнітура з шумозаглушенням дає цифрову тишу
         між фразами, а тиха мова (−42…−50 дБ) із порогом 0.008 відкидалась як «шум»: 7 з 30 команд."""
         return self.loud_enough(pcm, factor=factor, floor=getattr(self, "command_floor", 0.003))
+
+    def wake_loud_enough(self, pcm) -> bool:
+        """Чи достатньо гучно для виклику. Клацання клавіатури VAD бере за мовлення, а перевірка слова на шумі
+        повторює свою підказку «Хомі» — тож будило від друку. Твої «Хооміі» ≥0.006, друк ≤0.0008 (заміряно)."""
+        return speech_level(pcm) > getattr(self, "wake_floor", 0.002)
 
     def arm_barge_in(self, on: bool):
         """Під час відповіді Хомі: стежити, чи не заговорив ти поверх неї."""
