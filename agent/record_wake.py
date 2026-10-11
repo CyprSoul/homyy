@@ -14,6 +14,7 @@ import numpy as np
 from .wakeword import DATA_DIR, RATE, Features, WakeModel, augment
 
 POSITIVES = 30
+MIN_POSITIVE_SPEECH = 0.3      # менше секунд мовлення — це не «Хооміі», а шум
 TRAPS = ["в домі", "вдома", "Хома", "хочу", "хто ми", "по домі", "у домі", "хом'як", "хоч би",
          "Хоми", "Томі", "комін", "хвилину", "хо-хо", "окей", "привіт"]
 FREE_SECONDS = 90
@@ -44,6 +45,10 @@ def record(audio, prompt: str, kind: str, timeout: float = 8.0) -> bool:
     seg = audio.listen(end_silence_ms=400, max_seconds=3, start_timeout_s=timeout)
     if seg is None:
         print("   …нічого не почула, спробуємо ще раз")
+        return False
+    if kind == "positive" and seg[1] < MIN_POSITIVE_SPEECH:
+        # клацання чи луна від сигналу: без цього такі «записи» потрапляли в навчання як «Хооміі»
+        print(f"   ✗ надто коротко ({seg[1]:.1f} с мовлення) — не рахую, скажи ще раз")
         return False
     save(seg[0], kind)
     print(f"   ✓ записала ({seg[1]:.1f} с)")
