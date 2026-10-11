@@ -7,7 +7,14 @@ LEARNED_FILE = Path(__file__).resolve().parent / "games.json"
 
 DEFAULT_IGNORE = {"explorer.exe", "chrome.exe", "msedge.exe", "firefox.exe", "vivaldi.exe",
                   "opera.exe", "brave.exe", "vlc.exe", "mpc-hc64.exe", "potplayermini64.exe",
-                  "python.exe", "pythonw.exe", "powershell.exe", "windowsterminal.exe"}
+                  "python.exe", "pythonw.exe", "powershell.exe", "windowsterminal.exe",
+                  # оболонка Windows: екран блокування, пошук, меню «Пуск» тощо займають весь екран, але це не ігри
+                  "lockapp.exe", "logonui.exe", "searchhost.exe", "startmenuexperiencehost.exe",
+                  "shellexperiencehost.exe", "applicationframehost.exe", "taskmgr.exe", "snippingtool.exe",
+                  "screenclippinghost.exe",
+                  # програми, які користувач розгортає на весь екран, не граючи
+                  "discord.exe", "telegram.exe", "code.exe", "claude.exe", "notepad.exe",
+                  "winword.exe", "excel.exe", "powerpnt.exe"}
 
 
 def classify(exe: str, fullscreen: bool, games: set[str], ignore: set[str]) -> bool:

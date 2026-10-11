@@ -9,6 +9,12 @@ def test_game_detection():
     assert not classify("notepad.exe", False, games, DEFAULT_IGNORE)
 
 
+def test_shell_and_chat_apps_are_not_games():
+    # екран блокування й Discord на весь екран колись потрапили в games.json і присипляли Хомі
+    for exe in ("LockApp.exe", "SearchHost.exe", "Discord.exe", "Telegram.exe"):
+        assert not classify(exe, True, set(), DEFAULT_IGNORE)
+
+
 def test_remember_games(tmp_path, monkeypatch):
     from agent import gamewatch
     monkeypatch.setattr(gamewatch, "LEARNED_FILE", tmp_path / "games.json")

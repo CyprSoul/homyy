@@ -660,6 +660,7 @@ def _watch_games(cfg: dict):
     g = cfg.get("game", {})
     if not g.get("enabled", True):
         return
+    last_full, streak = "", 0
     while True:
         try:
             learned = load_learned()
@@ -667,10 +668,15 @@ def _watch_games(cfg: dict):
             ignore = DEFAULT_IGNORE | {x.lower() for x in g.get("ignore", [])} | learned["ignore"]
             exe, full = foreground()
             if classify(exe, full, games, ignore):
-                if exe and exe.lower() not in games and remember(exe, True):
+                # нову гру запам'ятовуємо, лише коли та сама програма ~20 с поспіль на весь екран:
+                # так екран блокування чи випадкове вікно не потрапляють у список ігор назавжди
+                streak = streak + 1 if exe.lower() == last_full else 1
+                last_full = exe.lower()
+                if exe and exe.lower() not in games and streak >= 7 and remember(exe, True):
                     log("🎮", f"Запам'ятала нову гру: {exe}")
                 game_now.set()
             else:
+                last_full, streak = "", 0
                 game_now.clear()
         except Exception:
             pass
