@@ -4,7 +4,6 @@
 """
 import os
 import random
-import re
 import socket
 from urllib.parse import urlparse
 import sys
@@ -16,11 +15,10 @@ import numpy as np
 import requests
 
 from .config import AGENT_DIR, load_config, ollama_options
+from .router import route
 from .skills import SkillBook
 from .text import (collapse, greeting, interrupt_request, is_new_topic, is_noise, is_pause, is_stop,
-                   is_no, is_wake, is_yes, media_intent, split_wake, unfinished, click_intent,
-                   wants_selection, window_intent, foreign_speech, folder_intent, fix_command, is_repeat, page_retry_intent,
-                   open_page_intent, page_status_intent)
+                   is_wake, split_wake, unfinished, foreign_speech, fix_command, is_repeat)
 
 LOG_FILE = AGENT_DIR / "homyy.log"
 SKILLS = SkillBook()
@@ -544,29 +542,25 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
             audio.beep(up=True)
             continue
         try:
-            intent = media_intent(text)
             awaiting, brain.tools.awaiting = brain.tools.awaiting, None
-            if awaiting and is_yes(text):   # «Закрити Discord?» → «так» — виконуємо одразу, без Gemma
+            # швидкі команди без Gemma — рішення в router.route (той самий шлях, що й у наборі перевірок)
+            rt = route(text, awaiting, brain.tools.last_page_task(), SKILLS)
+            kind = rt.kind if rt else None
+            if kind == "confirm":            # «Закрити Discord?» → «так» — виконуємо одразу, без Gemma
                 brain.tools.last_user_text = text
-                log("інструмент", f"{awaiting[0]} {awaiting[1]} (підтверджено)")
-                answer = brain.direct(text, awaiting[0], {**awaiting[1], "confirmed": True})
-            elif awaiting and is_no(text):
+                log("інструмент", f"{rt.tool} {awaiting[1]} (підтверджено)")
+                answer = brain.direct(text, rt.tool, rt.args)
+            elif kind == "decline":
                 brain.tools.pending = None
                 answer = brain.direct_reply(text, "Добре, не роблю.")
-            elif intent:                      # «постав на паузу» — одразу, без Gemma
-                log("інструмент", f"media {{'action': '{intent}'}} (швидка команда)")
-                answer = brain.direct(text, "media", {"action": intent, "times": 3 if "volume" in intent else 1})
-            elif window_intent(text):        # «згорни термінал», «перейди в дискорд» — одразу
-                action, target = window_intent(text)
-                log("інструмент", f"window {{'action': '{action}', 'name': '{target}'}} (швидка команда)")
-                answer = brain.direct(text, "window", {"action": action, "name": target})
-            elif folder_intent(text):        # «що в папці Games», «відкрий папку …» — одразу
-                tool, target = folder_intent(text)
-                log("інструмент", f"{tool} {{'name': '{target}'}} (швидка команда)")
-                answer = brain.direct(text, tool, {"name": target})
-                if tool == "list_folder" and not answer.startswith("Не знайшла"):
+            elif kind == "tool":             # «постав на паузу», «згорни термінал», «відкрий сторінку»… — одразу
+                if rt.tool == "click_on_screen":
+                    brain.tools.last_user_text = text
+                log("інструмент", f"{rt.tool} {rt.args} (швидка команда)")
+                answer = brain.direct(text, rt.tool, rt.args)
+                if rt.summarize and not answer.startswith("Не знайшла"):
                     answer = brain.ask(f"{text}\n\n(Ось що в папці — коротко перекажи голосом:)\n{answer}")
-            elif wants_selection(text):      # «переклади виділене» — беремо текст, а не знімок екрана
+            elif kind == "selection":        # «переклади виділене» — беремо текст, а не знімок екрана
                 from .windows import selected_text
                 sel = selected_text()
                 log("інструмент", f"selected_text → {len(sel)} символів")
@@ -575,30 +569,12 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                                        on_tool=lambda n, a: log("інструмент", f"{n} {a}"))
                 else:
                     answer = brain.direct_reply(text, "Не бачу виділеного тексту. Виділи його мишкою й скажи ще раз.")
-            elif click_intent(text):         # «натисни на …» — одразу, без Gemma
-                target = click_intent(text)
-                log("інструмент", f"click_on_screen {{'text': '{target}'}} (швидка команда)")
-                brain.tools.last_user_text = text
-                answer = brain.direct(text, "click_on_screen", {"text": target})
-            elif (page_task := brain.tools.last_page_task()) and open_page_intent(
-                    text, time.time() - page_task.get("t", 0) < 3 * 3600):
-                # «Відкрий її в браузері» — остання сторінка, одразу (Gemma тут казала «дай адресу»)
-                log("інструмент", "open_page {} (швидка команда)")
-                answer = brain.direct(text, "open_page", {})
-            elif page_status_intent(text):
-                # «Як там сторінка?» — правду каже код (пишеться / нічого не пишу), а не Gemma, яка тут вигадувала
-                log("інструмент", "page_status {} (швидка команда)")
-                answer = brain.direct(text, "page_status", {})
-            elif (page_task := brain.tools.last_page_task()) and page_retry_intent(
-                    text, time.time() - page_task.get("t", 0) < 3600):
-                # «Спробуй ще раз написати сторінку» — те саме завдання ще раз, без Gemma (вона тут вигадує «вже пишу»)
-                log("інструмент", f"make_page {{'name': '{page_task['name']}'}} (ще раз, швидка команда)")
-                answer = brain.direct(text, "make_page", {"name": page_task["name"], "request": page_task["request"]})
-            elif re.match(r"^(?:хомі,?\s*)?(?:забудь|розучись),? як", text.strip(), re.I):
+            elif kind == "forget_skill":
                 ok = SKILLS.forget(text)
                 answer = brain.direct_reply(text, "Добре, забула цю навичку." if ok else "Такої навички в мене немає.")
-            elif (skill := SKILLS.match(text)):
+            elif kind == "skill":
                 # вивчена навичка: повторюємо ті самі кроки одразу, без Gemma
+                skill = rt.skill
                 log("⚡", f"навичка «{skill['phrase']}» → {[c['name'] for c in skill['calls']]}")
                 results = [brain.tools.call(c["name"], c["arguments"]) for c in skill["calls"]]
                 answer = brain.direct_reply(text, " ".join(r for r in results if r)[:300])
