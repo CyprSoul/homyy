@@ -16,6 +16,11 @@ def test_wake_long_only():
     assert not is_wake("Хомі", 0.4, 1.0, 3)                       # звичайне коротке
     assert not is_wake("Хомі, яка зараз погода в Києві", 2.0, 1.0, 3)  # речення, а не виклик
     assert not is_wake("Хочу", 1.5, 1.0, 3)
+    # так Whisper пише протяжне «Хооміі» — 11.10 через це Хомі не прокинулась п'ять разів поспіль
+    assert is_wake("Хаоумммі.", 1.2, 0.0, 3)
+    assert is_wake("Хо-мі.", 1.2, 0.0, 3)
+    assert not is_wake("Хом'як.", 1.2, 0.0, 3)
+    assert not is_wake("Вдома.", 1.2, 0.0, 3)
 
 
 def test_prompt_extracted_from_repo():

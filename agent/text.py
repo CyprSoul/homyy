@@ -7,7 +7,8 @@ MONTHS = ["січня", "лютого", "березня", "квітня", "тр�
 WEEKDAYS = ["понеділок", "вівторок", "середа", "четвер", "п'ятниця", "субота", "неділя"]
 
 _WAKE_PATTERNS = [
-    re.compile(r"хо[уоа]?м[іиїйеє]"),   # хомі, хоумі, хомій…
+    # хомі, хоумі, хомій… і «Хаоумммі» — так Whisper пише протяжне «Хооміі» (раніше відкидалось, Хомі не прокидалась)
+    re.compile(r"х[ао]{1,2}у?м[іиїйеє]"),
     re.compile(r"ho[uo]?m[iey]"),        # homi, homie, houmy…
 ]
 
@@ -27,7 +28,8 @@ def is_wake(transcript: str, duration_s: float, min_seconds: float, max_words: i
     words = collapse(transcript).split()
     if not words or len(words) > max_words or duration_s < min_seconds:
         return False
-    return any(p.search(w) for w in words for p in _WAKE_PATTERNS)
+    candidates = words + ["".join(words)]          # «Хо-мі.» → «хо мі» → «хомі»
+    return any(p.search(w) for w in candidates for p in _WAKE_PATTERNS)
 
 
 def split_wake(transcript: str) -> str | None:
