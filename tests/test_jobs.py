@@ -56,6 +56,16 @@ def test_jobs_quick_commands():
     assert reminder is None or reminder.tool not in ("list_jobs", "cancel_reminder")
 
 
+def test_same_reminder_is_not_duplicated():
+    from agent.tools import Tools
+    t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
+    t.call("set_reminder", {"minutes": 30, "text": "випити воду"})
+    assert t.call("set_reminder", {"minutes": 31, "text": "воду випити"}).startswith("Це нагадування вже стоїть")
+    assert t.call("set_reminder", {"minutes": 90, "text": "випити воду"}).startswith("Таймер поставлено")   # інший час
+    assert t.call("set_reminder", {"minutes": 30, "text": "подзвонити мамі"}).startswith("Таймер поставлено")
+    assert len(t.jobs.active()) == 3
+
+
 def test_set_reminder_goes_to_the_book_and_status(monkeypatch):
     from agent.tools import Tools
     t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})

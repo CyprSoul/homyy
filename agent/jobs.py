@@ -46,6 +46,18 @@ class JobBook:
             pass
 
     # ---- задачі --------------------------------------------------------
+    def same_reminder(self, minutes: float, text: str) -> dict | None:
+        """Уже є таке нагадування на той самий час (±5 хв)? Модель, бачачи його в довідці, інколи ставила друге."""
+        due = time.time() + minutes * 60
+        words = {w[:5] for w in re.findall(r"[\w']+", text.lower()) if len(w) >= 3}
+        for j in self.active():
+            if j["kind"] != "reminder" or abs(j["due"] - due) > 300:
+                continue
+            have = {w[:5] for w in re.findall(r"[\w']+", j["title"].lower()) if len(w) >= 3}
+            if words and have and len(words & have) >= max(1, min(len(words), len(have)) // 2):
+                return j
+        return None
+
     def add_reminder(self, minutes: float, text: str) -> dict:
         job = {"id": uuid.uuid4().hex[:8], "kind": "reminder", "title": text, "due": time.time() + minutes * 60,
                "status": "active"}

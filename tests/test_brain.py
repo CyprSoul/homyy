@@ -225,6 +225,28 @@ def test_remembered_claim_is_true_when_code_saved_the_fact(monkeypatch):
     assert "вже записано в пам'ять" in seen[0][-1]["content"]
 
 
+def test_will_remind_is_true_when_reminder_exists(monkeypatch):
+    """Так було в наборі перевірок: «Ти не забудеш нагадати?» → «Нагадаю…» → «брехня» → «Не зрозуміла…»."""
+    b = Brain(CFG)
+    b.tools.jobs.add_reminder(30, "випити воду")
+    seen = []
+    monkeypatch.setattr(b, "_chat", lambda m: seen.append(1) or {"content": "Не забуду, нагадаю про воду вчасно."})
+    assert b.ask("Ти не забудеш нагадати мені про воду?") == "Не забуду, нагадаю про воду вчасно."
+    assert len(seen) == 1                                       # без перевірки «а де ж дія?»
+
+
+def test_will_remind_without_reminder_is_checked(monkeypatch):
+    b = Brain(CFG)
+    seen = []
+    replies = iter([{"content": "Звісно, нагадаю!"},
+                    {"content": "", "tool_calls": [{"function": {"name": "set_reminder",
+                                                                 "arguments": {"minutes": 10, "text": "вода"}}}]},
+                    {"content": "Поставила."}])
+    monkeypatch.setattr(b, "_chat", lambda m: seen.append(1) or next(replies))
+    assert b.ask("Нагадаєш мені через десять хвилин про воду?").startswith("Таймер поставлено")
+    assert len(seen) == 3                                       # нагадування не було — «нагадаю» перевірили
+
+
 def test_request_is_not_mistaken_for_a_fact(monkeypatch):
     b = Brain(CFG)
     b.remember_in_background = False

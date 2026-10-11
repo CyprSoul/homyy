@@ -66,6 +66,8 @@ NUDGE_FACTS = ("[Системна перевірка, Ігор цього не �
                "не знайшла.")
 NO_DATA_ANSWER = "Точних даних про це я не знайшла."
 _MEMORY_CLAIM = re.compile(r"\b(?:запам'ятал\w*|записал\w*|занотувал\w*|запам'ятаю|запишу)\b", re.IGNORECASE)
+# «нагадаю», «поставила нагадування» — правда, якщо нагадування справді є в книзі задач
+_REMINDER_CLAIM = re.compile(r"\b(?:нагадаю|нагадала|поставила нагадування|поставила таймер|не забуду)\b", re.IGNORECASE)
 
 
 def receipt_of(name: str, result) -> str | None:
@@ -443,6 +445,12 @@ class Brain:
             known |= numbers_in(str(m.get("content", "")))
         return sorted(n for n in numbers_in(answer) if n > 2 and not any(abs(n - k) <= 0.5 for k in known))
 
+    def _has_reminders(self) -> bool:
+        try:
+            return any(j["kind"] == "reminder" for j in self.tools.jobs.active())
+        except Exception:  # noqa: BLE001
+            return False
+
     def _auto_remember(self, user_text: str) -> str | None:
         """Розповів про себе («Я люблю ігри», «Мого сина звати Андрій») — запам'ятовує код, твоїми словами, ще ДО
         відповіді моделі (тоді її «запам'ятала» — правда). Модель тут була надто обережна: з 3 записів за тиждень
@@ -510,8 +518,11 @@ class Brain:
                 continue
             idle_claim = bool(not calls and content and claims_work_in_progress(content)
                               and not background and not self.tools.page_busy())
-            # «запам'ятала», коли факт справді записав код, — правда; решту звітів про дії без інструмента — перевіряємо
+            # «запам'ятала», коли факт справді записав код, і «нагадаю», коли нагадування справді є, — правда;
+            # решту звітів про дії без інструмента — перевіряємо
             claim_text = _MEMORY_CLAIM.sub("", content) if self.auto_memories else content
+            if _REMINDER_CLAIM.search(claim_text) and self._has_reminders():
+                claim_text = _REMINDER_CLAIM.sub("", claim_text)
             fake_done = bool(not used_tools and (claims_action(claim_text) or claims_short_action(claim_text)))
             if not calls and not nudged and (fake_done or (promises_more(content) and not background) or idle_claim):
                 # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —

@@ -227,6 +227,9 @@ class PcTools:
     def _t_set_reminder(self, minutes: float, text: str = "") -> str:
         minutes = max(0.0, min(float(minutes), 24 * 60))
         what = text.strip() or "час вийшов"
+        same = self.jobs.same_reminder(minutes, what)
+        if same:                                           # друге таке саме — не ставимо
+            return f"Це нагадування вже стоїть: о {_at(same['due'])} — {same['title']}."
         job = self.jobs.add_reminder(minutes, what)        # у книзі задач: видно, скасовується, переживає перезапуск
         return f"Таймер поставлено: о {_at(job['due'])} нагадаю — {what}."
 

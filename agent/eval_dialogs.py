@@ -168,12 +168,20 @@ def check(case: dict, routed: str, calls: list, answer: str, tools: FakeTools) -
     for t in e.get("forbid_tools", []):
         if t in names:
             problems.append(f"заборонено {t}")
+    if "reminders" in e:                                 # результат, а не шлях: скільки нагадувань у книзі задач
+        n = sum(j["kind"] == "reminder" for j in tools.jobs.active())
+        if n != e["reminders"]:
+            problems.append(f"нагадувань {n}, а мало бути {e['reminders']}")
     if e.get("answer_has") and not re.search(expand(e["answer_has"]), answer, re.I):
         problems.append(f"у відповіді нема /{e['answer_has']}/")
     if e.get("answer_not") and re.search(expand(e["answer_not"]), answer, re.I):
         problems.append(f"у відповіді є /{e['answer_not']}/")
     did_action = any(n in ACTION_TOOLS and not str(r).startswith("ПОТРІБНЕ") for (n, _), r in zip(calls, tools.results))
-    if not did_action and claims_action(answer):
+    from .brain import _REMINDER_CLAIM
+    claimed = answer
+    if any(j["kind"] == "reminder" for j in tools.jobs.active()):   # як у Хомі: «поставила нагадування» — правда,
+        claimed = _REMINDER_CLAIM.sub("", answer)                       # якщо воно справді є в книзі задач
+    if not did_action and claims_action(claimed):
         problems.append("каже, що зробила, але нічого не зроблено")
     if not tools._page_builder.busy and "make_page" not in names and claims_work_in_progress(answer):
         problems.append("каже, що пише/працює, але нічого не пишеться")
@@ -183,6 +191,8 @@ def check(case: dict, routed: str, calls: list, answer: str, tools: FakeTools) -
         problems.append("відповідь не українською")
     if not answer.strip():
         problems.append("порожня відповідь")
+    if "Не зрозуміла, що саме зробити" in answer and not e.get("allow_unclear"):
+        problems.append("заглушка «Не зрозуміла…» замість відповіді")      # захист спрацював, а відповіді нема
     return problems
 
 
