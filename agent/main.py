@@ -831,10 +831,15 @@ def voice_loop(cfg: dict, wake_click: threading.Event, orb=None):
     detector = WakeModel.load()
     features = Features() if detector else None
     # Детектор упевнений (схожість ≥ sure) — прокидаємось без перевірки Whisper: на ~1 с швидше.
+    if detector and stt.wake_model is not None and float(w.get("text_confirmed_threshold", 0)) > 0:
+        # слово підтверджує Whisper (ловить ~87% «Хооміі», заміряно на wake_data), тож детектору
+        # не потрібен поріг 0.96+, який губив частину викликів
+        detector.threshold = float(w["text_confirmed_threshold"])
     sure = max(detector.threshold, float(w.get("sure_score", 1.1))) if detector else 1.0
     if detector and stt.wake_model is None:
-        # Whisper недоступний (Windows його блокує): текст від Parakeet/Canary ловить лише ~третину
-        # протяжних «Хооміі» (заміряно на wake_data), тож вирішує сам детектор голосу
+        # Whisper недоступний (Windows його інколи блокує): текст від Parakeet/Canary ловить лише ~третину
+        # протяжних «Хооміі», тож вирішує сам детектор голосу — з суворішим порогом
+        detector.threshold = max(detector.threshold, float(w.get("solo_threshold", 0.95)))
         sure = detector.threshold
         log("👂", "Whisper недоступний — прокидаюсь за самим детектором голосу")
     end_ms = int(w.get("end_silence_ms", 350))   # скільки тиші після «Хооміі» = кінець слова
