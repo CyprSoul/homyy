@@ -20,6 +20,7 @@ def make_brain(monkeypatch, tmp_path, memories=(), replies=()):
         prompts.append(prompt)
         return queue.pop(0) if queue else "Тут."
     monkeypatch.setattr(G, "ask_model", fake_ask)
+    monkeypatch.setattr(G, "sounds_natural", lambda brain, text: True)     # суддя — окремими тестами
     return b, prompts
 
 
@@ -30,6 +31,11 @@ def test_check_rejects_stock_phrases_presumptions_clock_and_personal():
     assert G.check("Бачу, ти занурений у ігри.", form, [])
     assert G.check("Ти просив відкрити сторінку, але не дав вказівок.", form, [])
     assert G.check("Я вже працюю, поки ти ще спиш.", form, [])
+    assert G.check("Ти щойно мене перезапустив. Ми ж тільки-но бачилися. Чого це ти?", form, [])      # докір
+    assert G.check("Я дуже рада нашому знайомству.", form, [])                                        # ми давно знайомі
+    assert G.check("Ігорю, ти мене щойно перервав на самому цікавому місці.", form, [])               # вигадана подія
+    assert G.check("Ну що, ти знову за іграми, як і завжди?", form, [])
+    assert G.check("Вітаю, Ігорю, ти мене щойно перезапустив.", form, []) is None                     # а це правда і ввічливо
     assert G.check("Зараз 09:05, недільний ранок.", form, []) == "читає точний час"
     assert G.check("Пам'ятаю, що в тебе є син Андрій.", form, []) == "особисте (родина, здоров'я, гроші)"
     assert G.check("Як настрій?", form, []) == "питання, хоча не треба"
@@ -94,6 +100,34 @@ def test_bad_greeting_is_retried_then_falls_back(monkeypatch, tmp_path):
     assert text and "в строю" not in text and "ігр" not in text.lower()   # запасне з готових, а не вигадка
     saved = json.loads((tmp_path / "g.json").read_text(encoding="utf-8"))
     assert saved[-1]["angle"] == "static"
+
+
+def test_nonsense_word_rejected_by_judge_and_retried(monkeypatch, tmp_path):
+    """11.10: «Здається, я щойно встигла з тобою розмитися» — слово справжнє, але безглузде; словник його пропускає."""
+    b, prompts = make_brain(monkeypatch, tmp_path,
+                            replies=["О, привіт. Здається, я щойно встигла з тобою розмитися.", "Хей, я поруч."])
+    monkeypatch.setattr(G, "sounds_natural", lambda brain, text: "розмитися" not in text)
+    assert b.greet() == "Хей, я поруч." and len(prompts) == 2
+
+
+def test_judge_answers_are_parsed_and_outage_does_not_block(monkeypatch, tmp_path):
+    real = G.sounds_natural                                          # make_brain підміняє суддю; тут потрібен справжній
+    b, _ = make_brain(monkeypatch, tmp_path)
+    monkeypatch.setattr(G, "sounds_natural", real)
+    answers = iter(["НІ", "Ні, бо слова нема", "ТАК.", "так"])
+
+    class Resp:
+        def __init__(self, text): self.text = text
+        def raise_for_status(self): pass
+        def json(self): return {"message": {"content": self.text}}
+
+    monkeypatch.setattr(G.requests, "post", lambda *a, **k: Resp(next(answers)))
+    assert [G.sounds_natural(b, "x") for _ in range(4)] == [False, False, True, True]
+
+    def down(*a, **k):
+        raise G.requests.ConnectionError("ollama не відповідає")
+    monkeypatch.setattr(G.requests, "post", down)
+    assert G.sounds_natural(b, "x") is True                          # без судді привітання все одно звучить
 
 
 def test_old_history_format_is_read_and_new_one_saved(monkeypatch, tmp_path):

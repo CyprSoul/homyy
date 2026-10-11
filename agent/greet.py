@@ -34,7 +34,10 @@ _BANNED = re.compile(r"я вже тут|в строю|у строю|готов\w
 # припущення про мій стан («мабуть, ти ще спиш»)
 _PRESUME = re.compile(r"бачу,?\s+(?:що\s+)?ти|\bти\s+(?:просив|казав|дав|вирішив|занурився|зайнятий|занурений)\b|"
                       r"судячи з|\bти\s+(?:мабуть|напевно|певно)\b|\bя\s+(?:вже\s+|зараз\s+|тут\s+)?працюю\b|"
-                      r"\bмабуть,?\s+ти\b|поки\s+ти\s+(?:ще\s+)?(?:мабуть|спиш|відпочива)", re.IGNORECASE)
+                      r"\bмабуть,?\s+ти\b|поки\s+ти\s+(?:ще\s+)?(?:мабуть|спиш|відпочива)|"
+                      # докір, «знайомство» (ми давно знайомі) і вигадана подія («ти мене щойно перервав»)
+                      r"\bти\s+знову\s+(?:за|в|у)\b|чого\s+це\s+ти|\bми\s+ж\s+(?:тільки|щойно)|"
+                      r"знайомств|познайомит|\bти\s+мене\s+(?:щойно\s+)?(?:перерв|відволік)", re.IGNORECASE)
 # Точний час у привітанні звучить кострубато («о 09:05», «двадцять три години шість хвилин»)
 _CLOCK = re.compile(r"\d{1,2}[:.]\d{2}|годин\w*\s+(?:\w+\s+){1,2}хвилин|\bо\s+\w+\s+(?:годині|десятій|одинадцятій)\b",
                     re.IGNORECASE)
@@ -212,6 +215,30 @@ def ask_model(brain, prompt: str) -> str:
     return (r.json()["message"].get("content") or "").strip()
 
 
+_JUDGE = ("Ти — суворий коректор української мови. Тобі дають одне речення, яке сказав голосовий помічник. "
+          "Відповідай ОДНИМ словом. НІ — якщо в реченні є неіснуюче слово, слово вжите не за змістом, "
+          "незграбний чи безглуздий зворот, або воно так по-українськи не кажуть. ТАК — якщо речення звучить "
+          "природно, граматично правильно і має сенс.")
+
+
+def sounds_natural(brain, text: str) -> bool:
+    """Чи звучить привітання по-українськи. Мала модель інколи вигадує слова або вживає справжні не за змістом
+    («встигла з тобою розмитися»). Словник (pymorphy) такого не ловить — «розмитися» в ньому є, — а сама модель
+    як суддя при температурі 0 упіймала 8 з 8 таких речень (хибна тривога ~16% — тоді просто нова спроба).
+    Суддя недоступний — привітання не блокуємо."""
+    o = brain.cfg["ollama"]
+    try:
+        r = requests.post(f"{o['url']}/api/chat", timeout=30, json={
+            "model": o["model"], "stream": False, "think": False, "keep_alive": o.get("keep_alive", "24h"),
+            "options": ollama_options(brain.cfg, temperature=0.0, num_predict=4),
+            "messages": [{"role": "system", "content": _JUDGE}, {"role": "user", "content": text}]})
+        r.raise_for_status()
+        answer = (r.json()["message"].get("content") or "").strip()
+    except (requests.RequestException, ValueError, KeyError):
+        return True
+    return not answer.upper().startswith("НІ")
+
+
 def make_greeting(brain, now: datetime | None = None, attempts: int = 3) -> str | None:
     now = now or datetime.now()
     name = brain.cfg["user"].get("name_vocative", brain.cfg["user"]["name"])
@@ -231,7 +258,7 @@ def make_greeting(brain, now: datetime | None = None, attempts: int = 3) -> str 
         if not form["emoji"]:
             text = _EMOJI.sub("", text).strip()
         text = text.strip(" \"«»")
-        if check(text, form, recent) is None:
+        if check(text, form, recent) is None and sounds_natural(brain, text):
             break
         text = None
     if text is None:                  # жодна спроба не пройшла перевірку — запасне з готових, яке не повторює недавні

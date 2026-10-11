@@ -368,6 +368,7 @@ def test_greet_in_own_words_and_not_repeating(monkeypatch, tmp_path):
         return type("R", (), {"raise_for_status": lambda self: None,
                               "json": lambda self, t=next(replies): {"message": {"content": t}}})()
     monkeypatch.setattr("agent.greet.requests.post", fake_post)
+    monkeypatch.setattr("agent.greet.sounds_natural", lambda brain, text: True)    # суддя має свої тести (test_greet)
     first = b.greet()
     second = b.greet()
     assert first and second and first != second
