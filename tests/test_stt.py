@@ -41,6 +41,22 @@ def make(monkeypatch, text, engine="canary"):
     return s, fake
 
 
+def test_whisper_wake_model_is_warmed_up_at_start(monkeypatch):
+    # без прогріву перший «Хомі» після запуску обробляється 10–18 с, і Хомі за цей час глуха
+    calls = []
+
+    class Recorder:
+        def transcribe(self, audio, **kw):
+            calls.append(len(audio))
+            return iter([]), None
+
+    fake = FakeOnnx("")
+    monkeypatch.setattr(stt_mod, "WhisperModel", lambda *a, **k: Recorder())
+    monkeypatch.setattr(stt_mod.STT, "_load_onnx", lambda self, eng: (fake, {}))
+    stt_mod.STT({"stt": dict(CFG["stt"], engine="canary")})
+    assert calls == [16000]
+
+
 def test_command_uses_canary_with_ukrainian(monkeypatch):
     s, fake = make(monkeypatch, " Привіт, Хомі. ")
     assert s.gpu_model is None and s.cpu_model is None          # Whisper для команд не вантажиться

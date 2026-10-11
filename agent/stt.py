@@ -49,6 +49,11 @@ class STT:
         if WhisperModel is not None:
             print(f"Завантажую модель для «Хомі»: {s['wake_model']} (процесор)…")
             self.wake_model = WhisperModel(s["wake_model"], device="cpu", compute_type="int8", cpu_threads=self.threads)
+            try:        # перший виклик Whisper після старту тривав 10–18 с і глушив Хомі: прогріваємо одразу
+                list(self.wake_model.transcribe(np.zeros(16000, dtype=np.float32), language=self.language,
+                                                beam_size=1)[0])
+            except Exception:
+                pass
         else:
             print("Whisper недоступний (faster-whisper не завантажується) — слово «Хомі» перевіряю через Parakeet/Canary.")
 
