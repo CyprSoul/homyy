@@ -177,6 +177,37 @@ def test_gemini_overloaded_retries_then_succeeds(monkeypatch):
     assert b._write("x") == "<!DOCTYPE html><html>ok</html>" and len(calls) == 3 and b.author == "Gemini"
 
 
+def test_gemini_stream_survives_unicode_line_separators_and_a_corrupt_chunk(monkeypatch):
+    """Лог 12.10 00:22: «Unterminated string starting at: line 1 column 50» — правка сторінки пропала.
+    decode_unicode=True різав рядок SSE на U+2028 усередині JSON; і одна биту шматка валила всю задачу."""
+    import json
+    b = builder.PageBuilder({"ollama": {"url": "http://x", "model": "m"}, "coder": {"gemini_key": "k"}},
+                            log=lambda *a: None)
+    b._models = ["gemini-flash-latest"]
+    b.busy, b.started = "сайт", 0
+    monkeypatch.setattr(builder.time, "sleep", lambda s: None)
+    page = "<!DOCTYPE html><html>Привіт світ\u0085ще</html>"
+    good = ("data: " + json.dumps({"candidates": [{"content": {"parts": [{"text": page}]}}]}, ensure_ascii=False)
+            ).encode("utf-8")
+    calls = []
+
+    class R:
+        def __init__(self, lines): self.lines = lines
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def raise_for_status(self): pass
+        def iter_lines(self, decode_unicode=False):
+            assert not decode_unicode                              # лише байти: рядки не різати на Unicode-роздільниках
+            return iter(self.lines)
+
+    def post(url, **k):
+        calls.append(url)
+        return R([b'data: {"candidates": [{"content": {"parts": [{"text": "<!DOCT'] if len(calls) == 1 else [good])
+    monkeypatch.setattr(builder.requests, "post", post)
+    monkeypatch.setattr(b, "_write_local", lambda p: (_ for _ in ()).throw(AssertionError("не мала писати сама")))
+    assert b._write("x") == page and len(calls) == 2               # перший шматок обірвано — повтор, а не «не вийшло»
+
+
 def test_pick_gemini_models_from_google_listing():
     listing = {"models": [
         {"name": "models/gemini-3.6-flash", "supportedGenerationMethods": ["generateContent"]},

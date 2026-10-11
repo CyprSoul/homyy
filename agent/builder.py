@@ -221,6 +221,9 @@ class PageBuilder:
                 except requests.RequestException as e:
                     why = "немає зв'язку з Google"
                     self.log("🛠", f"Gemini {model}: {str(e)[:120]}")
+                except ValueError as e:                     # пошкоджений фрагмент потоку: пробуємо ще, а не валимо всю задачу
+                    why = "пошкоджена відповідь Gemini"
+                    self.log("🛠", f"Gemini {model}: {str(e)[:120]}")
         return None, why
 
     def _write_gemini(self, prompt: str, model: str) -> str | None:
@@ -235,7 +238,10 @@ class PageBuilder:
                 json={"contents": [{"role": "user", "parts": [{"text": prompt}]}],
                       "generationConfig": {"temperature": 0.4}}) as r:
             r.raise_for_status()
-            for line in r.iter_lines(decode_unicode=True):
+            # байтами, а не decode_unicode=True: той розрізає рядок на U+2028/U+0085 усередині JSON і ламає розбір
+            # («Unterminated string…», лог 12.10 00:22 — правку сторінки втрачено)
+            for raw in r.iter_lines():
+                line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
                 if not line or not line.startswith("data:"):
                     continue
                 chunk = json.loads(line[5:])
