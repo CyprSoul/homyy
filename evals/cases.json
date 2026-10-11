@@ -37,7 +37,9 @@
   {"id": "screen-look", "say": "Подивись, що у мене на екрані.", "expect": {"tools_any": ["look_at_screen"]}, "why": "лог 06.10"},
   {"id": "screen-click-cookies", "say": "Тоді просто не погоджуйся з куками, натисни кнопку.", "history": [["user", "Подивись, що у мене на екрані."], ["assistant", "На екрані браузер зі сторінкою новин, кнопки «I agree» і «I do not agree»."]], "expect": {"tools_any": ["click_on_screen"]}, "why": "лог 06.10"},
 
-  {"id": "power-shutdown", "say": "Буду лягати спати. Закрий всі програми і виключи комп'ютер.", "expect": {"tools_any": ["shutdown_timer"], "answer_has": "\\?"}, "why": "лог 08.10: має перепитати"},
+  {"id": "power-shutdown", "say": "Буду лягати спати. Закрий всі програми і виключи комп'ютер.", "expect": {"route": "reflex", "tools_any": ["shutdown_timer"], "answer_has": "\\?"}, "why": "лог 08.10: має перепитати (код), а не модель «Закрити всі програми?» без таймера"},
+  {"id": "power-later", "say": "Вимкни комп'ютер через пів години.", "expect": {"route": "reflex", "tools_any": ["shutdown_timer"], "answer_has": "30"}, "why": "час розбирає код"},
+  {"id": "power-not", "say": "Не вимикай комп'ютер, я ще граю.", "expect": {"forbid_tools": ["shutdown_timer"]}, "why": "заперечення — не команда"},
   {"id": "power-confirm", "say": "Так, вимикай.", "state": {"awaiting": ["shutdown_timer", {"minutes": 0}]}, "expect": {"route": "reflex", "tools_any": ["shutdown_timer"]}, "why": "лог 08.10"},
 
   {"id": "time-now", "say": "Котра година?", "expect": {"no_tools": true, "answer_has": "{now}"}, "why": "лог 06.10: правильний час (цифрами чи словами)"},

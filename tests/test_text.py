@@ -134,6 +134,27 @@ def test_media_intent():
     assert media_intent("Розкажи, чому музика на паузі буває корисною для концентрації уваги") is None
 
 
+def test_fix_command_repairs_garbled_page_word():
+    from agent.text import fix_command, page_status_intent
+    assert fix_command("- Як там, Стеринко?") == "- Як там, Сторінко?"          # 11.10 так почулося «сторінко»
+    assert page_status_intent(fix_command("- Як там, Стеринко?"))
+    assert fix_command("Відкрий сторинку трекера") == "Відкрий сторінку трекера"
+    for same in ("Подивись з іншого боку, на сторону.", "Де стоянка?", "Візьми стрічку.", "Повісь на стінку.",
+                 "Покажи сторінку"):
+        assert fix_command(same) == same, same
+
+
+def test_power_intent():
+    from agent.text import power_intent
+    assert power_intent("Буду лягати спати. Закрий всі програми і виключи комп'ютер.") == 0
+    assert power_intent("Вимкни комп'ютер через пів години") == 30
+    assert power_intent("Вимкни комп'ютер через годину") == 60
+    assert power_intent("Вимкни комп'ютер через десять хвилин") == 10
+    assert power_intent("Виключи комп через дві години") == 120
+    for q in ("Не вимикай комп'ютер, я ще граю.", "Коли ти вимкнеш комп'ютер?", "Вимкни музику"):
+        assert power_intent(q) is None, q
+
+
 def test_numbers_in_digits_and_words():
     from agent.text import numbers_in
     assert numbers_in("від дванадцяти до п'ятнадцяти градусів") == {12, 15}

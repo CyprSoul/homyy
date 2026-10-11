@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 
 from .text import (click_intent, folder_intent, is_no, is_yes, media_intent, open_page_intent, page_retry_intent,
-                   page_status_intent, wants_selection, window_intent)
+                   page_status_intent, power_intent, wants_selection, window_intent)
 
 
 @dataclass
@@ -60,6 +60,9 @@ def route(text: str, awaiting: tuple | None = None, page_task: dict | None = Non
     target = click_intent(text)                # «натисни на …»
     if target:
         return Route("tool", "click_on_screen", {"text": target})
+    minutes = power_intent(text)               # «вимкни комп'ютер (через пів години)» — код перепитає й чекатиме «так»
+    if minutes is not None:
+        return Route("tool", "shutdown_timer", {"minutes": minutes})
     age = now - page_task.get("t", 0) if page_task else None
     if page_task and open_page_intent(text, age < 3 * 3600):        # «відкрий її в браузері»
         return Route("tool", "open_page", {})

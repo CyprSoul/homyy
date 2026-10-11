@@ -65,6 +65,8 @@ NUDGE_FACTS = ("[Системна перевірка, Ігор цього не �
                "тим, що справді є в результатах; якщо потрібного там немає — коротко й чесно скажи, що точних даних "
                "не знайшла.")
 NO_DATA_ANSWER = "Точних даних про це я не знайшла."
+# Gemma 4 інколи віддає службове слово каналу міркувань окремим рядком: «\nthought\nВибач…» — не для озвучення
+_THOUGHT = re.compile(r"(?im)^\s*thought\s*$\n?")
 _MEMORY_CLAIM = re.compile(r"\b(?:запам'ятал\w*|записал\w*|занотувал\w*|запам'ятаю|запишу)\b", re.IGNORECASE)
 # «нагадаю», «поставила нагадування» — правда, якщо нагадування справді є в книзі задач
 _REMINDER_CLAIM = re.compile(r"\b(?:нагадаю|нагадала|поставила нагадування|поставила таймер|не забуду)\b", re.IGNORECASE)
@@ -78,6 +80,17 @@ def receipt_of(name: str, result) -> str | None:
         return None
     r = re.sub(r"\s*\(Службове:.*?\)\s*", " ", r, flags=re.S).strip()
     return r or None
+
+
+def confirmation_question(result) -> str | None:
+    """«ПОТРІБНЕ ПІДТВЕРДЖЕННЯ… спитай: «Точно вимкнути комп'ютер зараз?» …» → саме питання, яке звучить уголос
+    (у швидкій команді немає моделі, що переказала б службовий текст)."""
+    r = str(result or "")
+    if not r.startswith("ПОТРІБНЕ ПІДТВЕРДЖЕННЯ"):
+        return None
+    m = re.search(r"«(.+?)»", r)
+    q = (m.group(1) if m else "Підтверди, будь ласка").strip()
+    return q if q.endswith("?") else q + "?"
 
 
 def done_claim(sentence: str) -> bool:
@@ -341,8 +354,9 @@ class Brain:
             self.history = []
         self.last_turn = time.time()
         self.stats = []
-        answer = re.sub(r"\s*\(Службове:.*?\)\s*$", "", self.tools.call(tool, args), flags=re.S)
-        rc = receipt_of(tool, answer)
+        raw = self.tools.call(tool, args)
+        answer = confirmation_question(raw) or re.sub(r"\s*\(Службове:.*?\)\s*$", "", raw, flags=re.S)
+        rc = receipt_of(tool, raw)
         self.history += [{"role": "user", "content": user_text},
                          {"role": "assistant", "content": answer, "done": [rc] if rc else []}]
         self.last_exchange = (user_text, answer)
@@ -438,7 +452,7 @@ class Brain:
 
     def polish(self, user_text: str, text: str) -> str:
         """Ті самі виправлення, що й для цілої відповіді: час, рід, звертання, русизми."""
-        text = fix_gender(strip_unasked_time(user_text, text))
+        text = fix_gender(strip_unasked_time(user_text, _THOUGHT.sub("", text)))
         return fix_russisms(fix_vocative(text, self.cfg["user"])).strip()
 
     def _ungrounded(self, answer: str, user_text: str, sources: list[str]) -> list[float]:
@@ -506,6 +520,7 @@ class Brain:
         receipts: list[str] = []                         # що вже зроблено — словами самих інструментів
         info_results: list[str] = []                     # що принесли пошук, Вікіпедія, щоденник… — джерела фактів
         facts_nudged = False
+        first_content = ""
         # «Подумай гарненько…» — Gemma спершу міркує сама з собою (повільніше, 10–30 с, але розумніше)
         self.deep = bool(DEEP.search(user_text))
         self.last_calls, self.last_results = [], []     # для навичок: що саме зробила на це прохання
@@ -517,7 +532,7 @@ class Brain:
             else:
                 msg = self._chat(messages)
             calls = msg.get("tool_calls") or []
-            content = msg.get("content") or ""
+            content = msg["content"] = _THOUGHT.sub("", msg.get("content") or "")   # службове «thought» Gemma
             if (not calls and not lang_nudged and content and not looks_ukrainian(content)
                     and not wants_other_language(user_text)):
                 # Gemma перескочила на російську/англійську — просимо переказати українською
@@ -538,6 +553,7 @@ class Brain:
                 # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —
                 # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
                 nudged = True
+                first_content = content          # якщо примітка її лише заплутає — нормальні речення звідси
                 messages.append({"role": "assistant", "content": content})
                 messages.append({"role": "user", "content": NUDGE_IDLE if idle_claim else NUDGE})
                 if stream:
@@ -547,8 +563,12 @@ class Brain:
                     fake_done or promises_more(content) or _META.search(content) or idle_claim):
                 # і після примітки каже «вже роблю» чи розмовляє про «інструмент/кнопку», а нічого не запустила.
                 # Лишаємо лише нормальні речення («Я не знаю адреси сайту»); решту — чесним «не зрозуміла».
-                keep = [x for x in re.split(r"(?<=[.!?…])\s+", content.strip()) if x and not (
-                    _META.search(x) or done_claim(x) or promises_more(x))]
+                def normal(text):
+                    return [x for x in re.split(r"(?<=[.!?…])\s+", text.strip()) if x and not (
+                        _META.search(x) or done_claim(x) or promises_more(x))]
+                # примітка її лише заплутала («не зрозуміла, який інструмент…») — беремо нормальні речення з першої
+                # відповіді («Грай у задоволення!»), а не «Не зрозуміла…»
+                keep = normal(content) or normal(first_content)
                 honest = (" ".join(keep) if keep else
                           IDLE_ANSWER if idle_claim else "Не зрозуміла, що саме зробити. Скажи, будь ласка, ще раз.")
                 if stream:

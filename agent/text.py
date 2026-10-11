@@ -366,7 +366,9 @@ def claims_short_action(answer: str) -> bool:
     if text.lower().strip(" .!…") in _DONE_WORDS:
         return True
     for sent in re.split(r"(?<=[.!…])\s+", text):
-        m = _DONE_START.match(sent.strip().lower())
+        # імена з великої літери не на початку («Добре, Ігорю, не буду чіпати») — не дієслова, хоч і на «-ю»
+        sent = re.sub(r"(?<=[\s,])[А-ЯІЇЄҐ][а-яіїєґ']+,?", "", sent)
+        m = _DONE_START.match(re.sub(r"\s+", " ", sent).strip().lower())
         if m and len(m.group(1)) >= 4 and m.group(1) not in _MENTAL:
             return True
     return False
@@ -509,13 +511,36 @@ _FIRST_PERSON = {"пошукаю": "Пошукай", "знайду": "Знайд
 
 
 def fix_command(transcript: str) -> str:
-    """Розпізнавач часто чує «Пошукаю…» замість «Пошукай…» (й ↔ ю) — на початку фрази це команда."""
+    """Розпізнавач часто чує «Пошукаю…» замість «Пошукай…» (й ↔ ю) — на початку фрази це команда.
+    І спотворює «сторінка»: «Як там, Стеринко?» — так почулося «Як там, сторінко?»."""
+    transcript = _fix_page_word(transcript)
     words = transcript.split(maxsplit=1)
     if words:
         w = words[0].strip(",.!").lower()
         if w in _FIRST_PERSON:
             return _FIRST_PERSON[w] + (" " + words[1] if len(words) > 1 else "")
     return transcript
+
+
+_PAGE_FORMS = ["сторінка", "сторінку", "сторінко", "сторінки", "сторінці", "сторінкою", "сторінками", "сторінок",
+               "сторінкам", "сторінках"]
+
+
+def _fix_page_word(text: str) -> str:
+    """«стеринко», «сторинку», «стрінку» → «сторінко», «сторінку». Обережно: лише слова на «ст…» з «р» і «нк»,
+    дуже схожі (≥0.75), — щоб «сторона», «стоянка», «стрічку», «стінку» лишились собою."""
+    from difflib import SequenceMatcher
+
+    def repl(m):
+        w = m.group(0)
+        low = w.lower()
+        if low in _PAGE_FORMS or not (low.startswith("ст") and "р" in low and "нк" in low and 6 <= len(low) <= 10):
+            return w
+        best = max(_PAGE_FORMS, key=lambda f: SequenceMatcher(None, low, f).ratio())
+        if SequenceMatcher(None, low, best).ratio() < 0.75:
+            return w
+        return best.capitalize() if w[0].isupper() else best
+    return re.sub(r"[А-Яа-яІіЇїЄєҐґ']+", repl, text)
 
 
 _STOPWORDS = {"і", "й", "та", "а", "але", "що", "як", "це", "так", "ти", "я", "мені", "тобі", "мене", "тебе", "в",
@@ -602,6 +627,28 @@ def open_page_intent(transcript: str, page_recent: bool) -> bool:
     if re.search(r"(сторінк|сайт|трекер)", t):
         return True
     return page_recent and bool(re.search(r"\b(її|його)\b", t))
+
+
+_POWER = re.compile(r"\b(?:вимкни|виключи|вимикай|виключай|вируби)\s+(?:мені\s+|будь ласка,?\s+)?"
+                    r"(?:комп'ютер|компютер|комп|пк)\b")
+
+
+def power_intent(transcript: str) -> int | None:
+    """«Вимкни комп'ютер», «…через пів години / годину / 10 хвилин» → хвилини до вимкнення. Модель тут перепитувала
+    сама («Закрити всі програми і вимкнути?»), не ставлячи таймера, а «так» перевіряє КОД — тож це швидка команда.
+    «Не вимикай комп'ютер» і питання («Коли вимкнеш комп'ютер?») — ні."""
+    t = transcript.lower().replace("’", "'")
+    if "?" in t or not _POWER.search(t) or re.search(r"\bне\s+(?:вимик|вимкн|виключ)", t):
+        return None
+    m = re.search(r"через\s+([^.,!]+)", t)
+    if not m:
+        return 0
+    part = m.group(1)
+    if "пів" in part and "годин" in part:
+        return 30
+    nums = numbers_in(part)
+    n = int(min(nums)) if nums else 1
+    return n * 60 if "годин" in part else n
 
 
 _PW = r"(?:сторінк\w*|сайт\w*|трекер\w*)"

@@ -8,6 +8,21 @@ def test_forget_fact_is_a_quick_command():
     assert route("Забудь, як відкривати стім").kind == "forget_skill"        # навички — окремо
 
 
+def test_shutdown_is_a_quick_command_with_code_confirmation(system_calls):
+    from agent.brain import Brain
+    b = Brain({"user": {"name": "Ігор"}, "ollama": {"url": "http://x", "model": "m"}, "apps": {},
+               "search": {"url": "http://x"}, "openwebui": {}})
+    r = route("Закрий всі програми і виключи комп'ютер.")
+    assert (r.tool, r.args) == ("shutdown_timer", {"minutes": 0})
+    b.tools.last_user_text = "Закрий всі програми і виключи комп'ютер."
+    assert b.direct("Закрий всі програми і виключи комп'ютер.", r.tool, r.args) == "Точно вимкнути комп'ютер зараз?"
+    assert not system_calls                                     # без «так» нічого не запущено
+    confirm = route("Так, вимикай.", b.tools.awaiting)
+    b.tools.last_user_text = "Так, вимикай."
+    assert b.direct("Так, вимикай.", confirm.tool, confirm.args).startswith("Готово: комп'ютер вимкнеться зараз")
+    assert system_calls == [["shutdown", "/s", "/t", "0"]]
+
+
 def test_route_order_media_before_brain():
     assert route("Хоми, постав на паузу.").tool == "media"
     assert route("зніме з паузи").args["action"] == "play"

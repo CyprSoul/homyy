@@ -21,7 +21,8 @@ from pathlib import Path
 
 from .config import REPO_DIR, load_config
 from .router import route
-from .text import claims_action, claims_work_in_progress, is_noise, is_yes, looks_ukrainian, wants_other_language
+from .text import (claims_action, claims_work_in_progress, fix_command, is_noise, is_yes, looks_ukrainian,
+                   wants_other_language)
 from .tools import Tools
 
 CASES = REPO_DIR / "evals" / "cases.json"
@@ -72,8 +73,10 @@ class FakeTools(Tools):
         self.calls.append((name, args))
         if name in CONFIRM and not (args.get("confirmed") and is_yes(self.last_user_text)):
             self.awaiting = (name, {k: v for k, v in args.items() if k != "confirmed"})
+            minutes = int(args.get("minutes", 0) or 0)            # як у справжньому pctools: з часом
+            when = "зараз" if minutes == 0 else f"через {minutes} хв"
             what = {"close_app": f"Закрити {args.get('name', 'програму')}? Незбережене може пропасти",
-                    "shutdown_timer": "Точно вимкнути комп'ютер", "sleep_pc": "Перевести комп'ютер у сон"}[name]
+                    "shutdown_timer": f"Точно вимкнути комп'ютер {when}", "sleep_pc": "Перевести комп'ютер у сон"}[name]
             return (f"ПОТРІБНЕ ПІДТВЕРДЖЕННЯ. Нічого ще не зроблено. Коротко спитай користувача: «{what}?» "
                     "Якщо він скаже «так», виклич цей самий інструмент ще раз з confirmed=true.")
         self.awaiting = None
@@ -145,8 +148,9 @@ def expand(pattern: str) -> str:
     """Підставляє в очікування те, що залежить від часу запуску: {now} — поточна година й хвилина."""
     now = datetime.now()
     near = [now - timedelta(minutes=1), now, now + timedelta(minutes=1)]
-    hm = "|".join(rf"(?:{number_alts(t.hour)}\W+(?:годин\w*\W+)?{number_alts(t.minute)}|{t:%H}:{t:%M}|{t.hour}:{t:%M})"
-                  for t in near)
+    hm = "|".join(rf"(?:{number_alts(t.hour)}\W+(?:годин\w*\W+)?{number_alts(t.minute)}|{t:%H}:{t:%M}|{t.hour}:{t:%M}"
+                  + (rf"|{number_alts(t.hour)}\W+годин\w*(?!\W+\w+\s+хвилин))" if t.minute == 0 else ")")
+                  for t in near)                     # о 23:00 «двадцять три години» — правильно
     ny = (datetime(now.year + 1, 1, 1).date() - now.date()).days
     return pattern.replace("{now}", f"(?:{hm})").replace("{days_to_new_year}", number_alts(ny))
 
@@ -229,13 +233,17 @@ def run_case(case: dict, cfg: dict, brain_cls, reflex_only: bool) -> dict:
             return f"ПОМИЛКА: {ex}"
 
     t0 = time.time()
+    case = {**case, "say": fix_command(case["say"])}    # як у main: виправлення розпізнаного тексту перед усім
+    tools.last_user_text = case["say"]
     rt = None if is_noise(case["say"]) else route(case["say"], awaiting, tools.last_page_task(), None)
     if is_noise(case["say"]):                         # як у main: шум Хомі пропускає мовчки
         routed, answer = "ignored", "(шум — Хомі пропускає)"
     elif rt is not None:
         routed = "reflex"
         if rt.kind in ("tool", "confirm"):
-            answer = tools.call(rt.tool, rt.args)
+            from .brain import confirmation_question
+            raw = tools.call(rt.tool, rt.args)
+            answer = confirmation_question(raw) or raw          # як Brain.direct: уголос — лише саме питання
             # як у main: вміст папки чи щоденника коротко переказує модель
             if rt.summarize and not reflex_only and not answer.startswith(("Не знайшла", "У щоденнику нічого")):
                 answer = ask(f"{case['say']}\n\n({rt.summarize})\n{answer}")

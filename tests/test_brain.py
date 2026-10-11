@@ -248,6 +248,29 @@ def test_will_remind_without_reminder_is_checked(monkeypatch):
     assert len(seen) == 3                                       # нагадування не було — «нагадаю» перевірили
 
 
+def test_name_ending_in_yu_is_not_a_done_claim(monkeypatch):
+    """«Ігорю» закінчується на «-ю», як «продовжую»: «Добре, Ігорю, не буду чіпати» вважалось звітом про дію."""
+    b = Brain(CFG)
+    seen = []
+    monkeypatch.setattr(b, "_chat", lambda m: seen.append(1) or {"content": "Добре, Ігорю, не буду чіпати. Грай!"})
+    assert b.ask("Не вимикай комп'ютер, я ще граю.") == "Добре, Ігорю, не буду чіпати. Грай!"
+    assert len(seen) == 1
+
+
+def test_confused_reply_to_check_keeps_first_normal_sentences(monkeypatch):
+    b = Brain(CFG)
+    replies = iter([{"content": "Залишаю комп'ютер увімкненим. Грай у задоволення!"},
+                    {"content": "Я не зовсім зрозуміла, який інструмент мені викликати."}])
+    monkeypatch.setattr(b, "_chat", lambda m: next(replies))
+    assert b.ask("Не вимикай комп'ютер, я ще граю.") == "Грай у задоволення!"
+
+
+def test_thought_marker_is_not_spoken(monkeypatch):
+    b = Brain(CFG)
+    monkeypatch.setattr(b, "_chat", lambda m: {"content": "\nthought\nВибач, Ігорю, я помилилась."})
+    assert b.ask("Що там?") == "Вибач, Ігорю, я помилилась."
+
+
 def test_request_is_not_mistaken_for_a_fact(monkeypatch):
     b = Brain(CFG)
     b.remember_in_background = False
