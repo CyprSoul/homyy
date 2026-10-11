@@ -7,8 +7,8 @@ from datetime import date, datetime
 import requests
 
 from .config import REPO_DIR, ollama_options
-from .text import (claims_action, extract_prompt, fix_russisms, looks_ukrainian, promises_more, ukr_date,
-                   wants_other_language)
+from .text import (claims_action, claims_work_in_progress, extract_prompt, fix_russisms, looks_ukrainian,
+                   promises_more, ukr_date, wants_other_language)
 from .tools import Tools
 
 VOICE_RULES = """
@@ -41,6 +41,13 @@ NUDGE = ("[Системна перевірка, Ігор цього не пис�
          "Твоя відповідь каже, що ти щось робиш, але жодного інструмента ти не викликала, тож нічого не відбудеться. "
          "Виклич потрібний інструмент просто зараз. Якщо такого інструмента немає — одним реченням чесно скажи, "
          "що цього не вмієш.")
+# Каже «ще пишу сторінку / працюю над кодом», а будівник сторінок вільний: так вона «писала» трекер, якого ніхто не запускав,
+# і ця вигадка потрапила навіть у щоденник
+NUDGE_IDLE = ("[Системна перевірка, Ігор цього не писав і не бачить — не відповідай на неї, не вибачайся, не згадуй її.] "
+              "Зараз ти нічого не пишеш і нічого не робиш у фоні: жодної фонової задачі немає. Відповідай правдиво. "
+              "Просять відкрити сторінку — виклич open_page; просять створити чи переробити — виклич make_page "
+              "(або edit_page); решта — скажи, що зараз нічого не робиш.")
+IDLE_ANSWER = "Зараз я нічого не пишу. Скажи, що саме зробити, наприклад «зроби сторінку для тренувань», — і я візьмуся."
 # Роботу ці інструменти доробляють у фоні й самі кажуть «готово» — «скажу, коли буде» тут правда, не порожня обіцянка
 BACKGROUND_TOOLS = {"make_page", "edit_page", "set_reminder"}
 DEEP = re.compile(r"(подумай|поміркуй|подумати|обміркуй|розміркуй|проаналізуй|детально розбери|"
@@ -111,6 +118,8 @@ class SentenceStream:
     def _risky(self, sent: str) -> bool:
         if (promises_more(sent) and not self.background) or (not self.used_tools and claims_action(sent)):
             return True
+        if claims_work_in_progress(sent) and not self.background and not self.brain.tools.page_busy():
+            return True                                     # «ще пишу сторінку», а нічого не пишеться — не озвучуємо
         return (len(sent.split()) >= 4 and not looks_ukrainian(sent)
                 and not wants_other_language(self.user_text))
 
@@ -410,23 +419,27 @@ class Brain:
                 messages.append({"role": "user", "content": "(Службове: відповідай лише українською мовою. "
                                  "Перекажи свою відповідь українською.)"})
                 continue
+            idle_claim = bool(not calls and content and claims_work_in_progress(content)
+                              and not background and not self.tools.page_busy())
             if not calls and not nudged and ((not used_tools and claims_action(content))
-                                             or (promises_more(content) and not background)):
+                                             or (promises_more(content) and not background) or idle_claim):
                 # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —
                 # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
                 nudged = True
                 messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": NUDGE})
+                messages.append({"role": "user", "content": NUDGE_IDLE if idle_claim else NUDGE})
                 if stream:
                     stream.hold_all = True       # відповідь на цю примітку спершу перевіряємо, потім озвучуємо
                 continue
             if not calls and nudged and not background and (
-                    (not used_tools and claims_action(content)) or promises_more(content) or _META.search(content)):
+                    (not used_tools and claims_action(content)) or promises_more(content) or _META.search(content)
+                    or idle_claim):
                 # і після примітки каже «вже роблю» чи розмовляє про «інструмент/кнопку», а нічого не запустила.
                 # Лишаємо лише нормальні речення («Я не знаю адреси сайту»); решту — чесним «не зрозуміла».
                 keep = [x for x in re.split(r"(?<=[.!?…])\s+", content.strip()) if x and not (
-                    _META.search(x) or claims_action(x) or promises_more(x))]
-                honest = " ".join(keep) if keep else "Не зрозуміла, що саме зробити. Скажи, будь ласка, ще раз."
+                    _META.search(x) or claims_action(x) or promises_more(x) or claims_work_in_progress(x))]
+                honest = (" ".join(keep) if keep else
+                          IDLE_ANSWER if idle_claim else "Не зрозуміла, що саме зробити. Скажи, будь ласка, ще раз.")
                 if stream:
                     stream.buf, stream.held, stream.hold = "", [], False
                     stream.spoken.append(honest)

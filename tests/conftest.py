@@ -31,6 +31,13 @@ def system_calls(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_pages_dir(monkeypatch, tmp_path):
+    """Тести не створюють і не читають справжні сторінки в Документах."""
+    from agent import builder
+    monkeypatch.setattr(builder, "PAGES_DIR", tmp_path / "pages")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_system_side_effects(system_calls):
     """Жоден тест не вимикає ПК, не присипляє, не блокує екран і не закриває програми по-справжньому."""
     yield

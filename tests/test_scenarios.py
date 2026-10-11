@@ -339,7 +339,7 @@ def test_reply_to_check_is_not_spoken(monkeypatch, tmp_path):
 def test_background_status_is_told_to_gemma(tmp_path):
     from agent.tools import Tools
     t = Tools({"apps": {}})
-    assert t.background_status() == ""
+    assert "НЕ пишеш" in t.background_status()      # навіть до першого будівника: порожня довідка спонукала вигадувати
     b = type("B", (), {"busy": "тренування", "status": lambda self: "Сторінка «тренування»: пишу код, минуло 1:05",
                        "last": None})()
     t._page_builder = b

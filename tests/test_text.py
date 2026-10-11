@@ -129,6 +129,17 @@ def test_media_intent():
     assert media_intent("Розкажи, чому музика на паузі буває корисною для концентрації уваги") is None
 
 
+def test_claims_work_in_progress():
+    from agent.text import claims_work_in_progress as claims
+    assert claims("Я справді ще не закінчила її писати, тому відкрити поки нічого не можу.")
+    assert claims("Ігорю, я зараз працюю над кодом для твого трекера.")
+    assert claims("Добре, тоді я продовжу роботу над сторінкою.")
+    assert claims("Хомі зосереджена на написанні коду.")
+    assert not claims("Зараз я нічого не пишу.")
+    assert not claims("Я не пишу сторінку, бо ти не просив.")
+    assert not claims("Відкрила сторінку «тренування».")
+
+
 def test_claims_action():
     from agent.text import claims_action
     assert claims_action("Зрозуміла, Ігорю. Музику поставила на паузу.")

@@ -75,6 +75,39 @@ def test_claimed_action_without_tool_is_retried(monkeypatch):
     assert called == [("media", {"action": "pause"})]
 
 
+def test_false_work_claim_is_not_spoken_when_nothing_is_being_written(monkeypatch):
+    """Так було: «я ще пишу сторінку», хоча ніхто нічого не запускав, — і Ігор чекав на сторінку, якої нема."""
+    from agent.brain import IDLE_ANSWER
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "Я справді ще не закінчила її писати, тому відкрити поки нічого не можу."},
+        {"content": "Так, я ще пишу код сторінки, зачекай."},                      # навіть після перевірки
+    ])
+    seen = []
+    monkeypatch.setattr(b, "_chat", lambda m: seen.append(list(m)) or next(replies))
+    assert b.ask("Хочу подивитися на сторінку трекера.") == IDLE_ANSWER
+    check = seen[1][-1]["content"]
+    assert "Системна перевірка" in check and "open_page" in check            # їй нагадали, що робити насправді
+
+
+def test_work_claim_is_allowed_while_a_page_is_really_being_written(monkeypatch):
+    import types
+    b = Brain(CFG)
+    b.tools._page_builder = types.SimpleNamespace(busy="тренування", last=None, names=lambda: [],
+                                                  status=lambda: "пишу, минуло 1:05")
+    monkeypatch.setattr(b, "_chat", lambda m: {"content": "Я ще пишу сторінку, скоро буде готово."})
+    assert b.ask("Як там сторінка?") == "Я ще пишу сторінку, скоро буде готово."
+
+
+def test_background_status_is_truthful_before_any_page_was_made_in_this_run(monkeypatch, tmp_path):
+    from agent import builder
+    from agent.tools import Tools
+    monkeypatch.setattr(builder, "pages_dir", lambda: tmp_path)
+    (tmp_path / "тренування.html").write_text("<html></html>", encoding="utf-8")
+    status = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}}).background_status()
+    assert "НЕ пишеш" in status and "тренування" in status               # після перезапуску довідка не порожня
+
+
 def test_promise_without_result_is_followed_up(monkeypatch):
     b = Brain(CFG)
     replies = iter([

@@ -266,15 +266,26 @@ class Tools(PcTools):
         if self.on_reminder:
             self.on_reminder(text)
 
+    def page_busy(self) -> bool:
+        """Чи справді зараз пишеться сторінка (будівника в цьому запуску може й не бути — тоді ні)."""
+        b = getattr(self, "_page_builder", None)
+        return bool(b and b.busy)
+
     def background_status(self) -> str:
         """Що Хомі зараз робить у фоні — щоб на «як справи?» не вигадувала «шліфую дизайн»."""
-        b = getattr(self, "_page_builder", None)
-        if b is None:
+        try:
+            b = self._builder()      # навіть якщо ще не створювали: після перезапуску порожня довідка спонукала вигадувати
+        except Exception:            # noqa: BLE001
             return ""
         if b.busy:
             return f" Фонова робота (це правда, кажи лише це, без вигадок): {b.status()}"
-        return (" Зараз ти НЕ пишеш жодної сторінки й нічого не робиш у фоні — не кажи, що щось пишеш чи шліфуєш."
-                + (f" Остання сторінка «{b.last.stem}» готова (відкрити її — інструмент open_page)." if b.last else ""))
+        try:
+            names = b.names()
+        except Exception:            # noqa: BLE001
+            names = []
+        ready = (f" Готові сторінки (найсвіжіша перша): {', '.join(names[:6])}; відкрити — інструмент open_page."
+                 if names else " Жодної сторінки ще не створено.")
+        return " Зараз ти НЕ пишеш жодної сторінки й нічого не робиш у фоні — не кажи, що щось пишеш чи шліфуєш." + ready
 
     def last_page_task(self) -> dict | None:
         from .builder import PageBuilder
