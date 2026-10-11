@@ -558,8 +558,8 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
                     brain.tools.last_user_text = text
                 log("інструмент", f"{rt.tool} {rt.args} (швидка команда)")
                 answer = brain.direct(text, rt.tool, rt.args)
-                if rt.summarize and not answer.startswith("Не знайшла"):
-                    answer = brain.ask(f"{text}\n\n(Ось що в папці — коротко перекажи голосом:)\n{answer}")
+                if rt.summarize and not answer.startswith(("Не знайшла", "У щоденнику нічого")):
+                    answer = brain.ask(f"{text}\n\n({rt.summarize})\n{answer}")
             elif kind == "selection":        # «переклади виділене» — беремо текст, а не знімок екрана
                 from .windows import selected_text
                 sel = selected_text()
@@ -610,6 +610,8 @@ def _conversation(cfg, audio, stt, brain, speaker, first=None):
             log("помилка", str(e))
             answer = "Ой, я не можу достукатися до свого мозку. Перевір, будь ласка, чи працює Ollama."
         log("Хомі", f"{answer}   [{'відповідь готова за' if streamed else 'думала'} {time.time() - t_llm:.1f} с]")
+        for note in getattr(brain, "auto_memories", []):
+            log("🧠", f"запам'ятала про тебе: {note}")
         for st in brain.stats:
             log("⏱", st)
         if streamed:

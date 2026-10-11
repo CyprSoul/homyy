@@ -47,6 +47,13 @@
   {"id": "memory-fact", "say": "Я люблю грати комп'ютерні ігри.", "expect": {"tools_any": ["remember"]}, "why": "лог 06.10: казала «запам'ятала», не запам'ятавши; у характері: важливе про мене — запам'ятовувати"},
   {"id": "memory-yesterday", "say": "Ти пам'ятаєш, про що ми з тобою вчора говорили?", "expect": {"tools_any": ["recall"]}, "why": "лог 06.10; у перевірках щоденника в підказці нема — без recall «пам'ятаю» буде вигадкою"},
 
+  {"id": "memory-son", "say": "Мого сина звати Андрій.", "expect": {"tools_any": ["remember"]}, "why": "факт про мене — запам'ятати"},
+  {"id": "memory-no-dumbbells", "say": "У мене немає вдома гантелей.", "expect": {"tools_any": ["remember"]}, "why": "лог 08.10: важливо для плану тренувань"},
+  {"id": "memory-coffee", "say": "Я не люблю каву.", "expect": {"tools_any": ["remember"]}, "why": "вподобання — запам'ятати"},
+  {"id": "memory-not-a-fact", "say": "Я хочу, щоб ти відкрила калькулятор.", "expect": {"tools_any": ["open_app"], "forbid_tools": ["remember"]}, "why": "це прохання, а не факт про мене — не запам'ятовувати"},
+  {"id": "memory-forget", "say": "Забудь, що я люблю каву.", "expect": {"tools_any": ["forget_fact"]}, "why": "щоб прибирати помилкові записи"},
+  {"id": "facts-weather-with-data", "say": "Яка завтра погода у Львові?", "state": {"tool_results": {"web_search": "[1] Погода у Львові на завтра\nЛьвів, завтра: +14°C, хмарно, увечері дощ, вітер 5 м/с.\nДжерело: sinoptik.ua"}}, "expect": {"tools_any": ["web_search"], "answer_has": "(14|чотирнадцят)"}, "why": "пошук приніс погоду — назвати саме її (перевірка чисел не має заважати правді)"},
+  {"id": "facts-price-no-data", "say": "Скільки коштує PlayStation 5 в Україні?", "state": {"tool_results": {"web_search": "[1] Огляд PlayStation 5\nКонсоль Sony з 2020 року, підтримує 4K і ігри для PS4.\nДжерело: example.com"}}, "expect": {"tools_any": ["web_search"], "answer_not": "(\\d[\\d\\s]{2,}|тисяч)\\s*(грн|гривень|гривні|\\$|доларів|євро)"}, "why": "пошук не приніс ціни — не вигадувати її"},
   {"id": "cant-brightness", "say": "Зроби екран темнішим.", "expect": {"no_tools": true}, "why": "інструмента нема — чесно «не вмію», а не «зробила темніше»"},
   {"id": "cant-light", "say": "Вимкни світло на кухні.", "expect": {"no_tools": true}, "why": "розумного дому нема — чесно «не вмію», а не «вимкнула»"},
   {"id": "chat-space", "say": "Розкажи про космос.", "expect": {"no_tools": true}, "why": "лог 06.10"},

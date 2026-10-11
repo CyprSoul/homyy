@@ -157,9 +157,13 @@ class Tools(PcTools):
             _schema("read_page", "Прочитати повний текст сторінки за адресою (з результатів пошуку), щоб відповісти "
                     "точно, а не з короткого уривка.",
                     {"url": {"type": "string"}}, ["url"]),
-            _schema("remember", "Запам'ятати важливий довготривалий факт про користувача. "
-                    "Пиши від третьої особи: «Користувач любить…».",
+            _schema("remember", "Запам'ятати факт про мене надовго. Клич ОДРАЗУ, щойно я розповідаю щось про себе — "
+                    "вподобання, звички, людей, плани, здоров'я, роботу, — навіть мимохідь, і коли прошу "
+                    "«запам'ятай». Пиши від третьої особи: «Ігор любить…».",
                     {"fact": {"type": "string"}}, ["fact"]),
+            _schema("forget_fact", "Забути факт про мене з пам'яті: «забудь, що я люблю каву». query — ключові "
+                    "слова з того факту.",
+                    {"query": {"type": "string"}}, ["query"]),
             _schema("play_music", "Увімкнути музику в YouTube Music: «увімкни музику» (без запиту — мої "
                     "вподобані пісні) або конкретну пісню, виконавця, жанр («увімкни Океан Ельзи», "
                     "«увімкни щось спокійне для роботи»).",
@@ -314,7 +318,7 @@ class Tools(PcTools):
     def _t_recall(self, query: str) -> str:
         from .diary import Diary
         found = Diary().search(query)
-        return ("Зі щоденника розмов:\n" + "\n".join(found)) if found else f"У щоденнику нічого про «{query}»."
+        return ("Зі щоденника розмов:\n" + "\n".join(found)) if found else "У щоденнику нічого про це не знайшла."
 
     def _t_wiki(self, query: str) -> str:
         from .kiwix import Kiwix
@@ -339,6 +343,25 @@ class Tools(PcTools):
                           headers={"Authorization": f"Bearer {ow['api_key']}"}, timeout=10)
         r.raise_for_status()
         return "Записано в пам'ять."
+
+    def _t_forget_fact(self, query: str) -> str:
+        ow = self.cfg.get("openwebui", {})
+        if not ow.get("api_key"):
+            return "Пам'ять не підключена (немає API-ключа Open WebUI)."
+        headers = {"Authorization": f"Bearer {ow['api_key']}"}
+        r = requests.get(f"{ow['url']}/api/v1/memories/", headers=headers, timeout=10)
+        r.raise_for_status()
+        # за ключовими словами, а не дослівно: «що я люблю каву» знаходить і «Я не люблю каву»
+        stop = {"що", "про", "те", "мене", "мені", "мій", "моя", "моє", "мої", "я", "не", "ти", "це", "вже", "теж"}
+        keys = [w for w in re.findall(r"[\w']+", (query or "").lower().replace("’", "'")) if len(w) >= 3 and w not in stop]
+        hits = [m for m in r.json() if keys and all(k[:5] in m.get("content", "").lower() for k in keys)]
+        if not hits:
+            return f"У пам'яті нічого про «{query}» не знайшла."
+        if len(hits) > 3:                       # широкий запит — не стираємо пів пам'яті одним словом
+            return f"Про «{query}» в пам'яті {len(hits)} записів — скажи точніше, що саме забути."
+        for m in hits:
+            requests.delete(f"{ow['url']}/api/v1/memories/{m['id']}", headers=headers, timeout=10).raise_for_status()
+        return "Забула: " + "; ".join(m["content"] for m in hits)
 
     def _t_media(self, action: str, times: int = 1) -> str:
         if action not in _VK:

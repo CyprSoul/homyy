@@ -166,6 +166,76 @@ def test_background_status_is_truthful_before_any_page_was_made_in_this_run(monk
     assert "НЕ пишеш" in status and "тренування" in status               # після перезапуску довідка не порожня
 
 
+def test_invented_numbers_after_search_are_not_spoken(monkeypatch):
+    """Так було в наборі перевірок: пошук погоди не приніс, а відповідь — «12–15 градусів»."""
+    from agent.brain import NO_DATA_ANSWER
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "", "tool_calls": [{"function": {"name": "web_search", "arguments": {"query": "погода Київ"}}}]},
+        {"content": "Завтра в Києві хмарно, від дванадцяти до п'ятнадцяти градусів."},      # вигадка
+        {"content": "Завтра в Києві до 15 градусів, як завжди."},                              # і вдруге
+    ])
+    seen, said = [], []
+
+    def fake_chat(messages, on_delta=None, cancel=None):
+        seen.append(list(messages))
+        reply = next(replies)
+        if on_delta and reply.get("content"):
+            on_delta(reply["content"] + " ")
+        return reply
+    monkeypatch.setattr(b, "_chat", fake_chat)
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "[1] Київ — столиця України.\nДжерело: wiki")
+    answer = b.ask("Яка завтра погода в Києві?", on_sentence=said.append)
+    assert "Системна перевірка" in seen[2][-1]["content"] and "12" in seen[2][-1]["content"]
+    assert not any("градус" in s for s in said)                       # вигадані числа так і не прозвучали
+    assert answer.endswith(NO_DATA_ANSWER)
+
+
+def test_numbers_from_search_results_pass(monkeypatch):
+    b = Brain(CFG)
+    replies = iter([
+        {"content": "", "tool_calls": [{"function": {"name": "web_search", "arguments": {"query": "погода Львів"}}}]},
+        {"content": "Завтра у Львові чотирнадцять градусів і дощ увечері."},
+    ])
+    monkeypatch.setattr(b, "_chat", lambda m: next(replies))
+    monkeypatch.setattr(b.tools, "call", lambda n, a: "Львів, завтра: +14°C, хмарно, увечері дощ.")
+    assert b.ask("Яка завтра погода у Львові?") == "Завтра у Львові чотирнадцять градусів і дощ увечері."
+
+
+def test_fact_about_me_is_remembered_even_if_model_does_not(monkeypatch):
+    b = Brain(CFG)
+    b.remember_in_background = False
+    called = []
+    monkeypatch.setattr(b, "_chat", lambda m: {"content": "Класно! У які ігри граєш?"})
+    monkeypatch.setattr(b.tools, "call", lambda n, a: called.append((n, a)) or "Записано в пам'ять.")
+    assert b.ask("Я люблю грати комп'ютерні ігри.") == "Класно! У які ігри граєш?"
+    assert called == [("remember", {"fact": "Ігор про себе: «Я люблю грати комп'ютерні ігри.»"})]
+    assert b.auto_memories == ["Ігор про себе: «Я люблю грати комп'ютерні ігри.»"]
+
+
+def test_remembered_claim_is_true_when_code_saved_the_fact(monkeypatch):
+    """Так було: «Я не люблю каву» → модель «Запам'ятала.» без інструмента → перевірка → «Не зрозуміла…»."""
+    b = Brain(CFG)
+    b.remember_in_background = False
+    called, seen = [], []
+    monkeypatch.setattr(b, "_chat", lambda m: seen.append(list(m)) or {"content": "Запам'ятала! А чай любиш?"})
+    monkeypatch.setattr(b.tools, "call", lambda n, a: called.append(n) or "Записано в пам'ять.")
+    assert b.ask("Я не люблю каву.") == "Запам'ятала! А чай любиш?"
+    assert called == ["remember"] and len(seen) == 1                     # без перевірки й без другого запису
+    assert "вже записано в пам'ять" in seen[0][-1]["content"]
+
+
+def test_request_is_not_mistaken_for_a_fact(monkeypatch):
+    b = Brain(CFG)
+    b.remember_in_background = False
+    called = []
+    monkeypatch.setattr(b, "_chat", lambda m: {"content": "Добре."})
+    monkeypatch.setattr(b.tools, "call", lambda n, a: called.append(n) or "")
+    b.ask("Я хочу, щоб ти розповіла про космос.")
+    b.ask("Ти любиш осінь?")
+    assert "remember" not in called
+
+
 def test_promise_without_result_is_followed_up(monkeypatch):
     b = Brain(CFG)
     replies = iter([

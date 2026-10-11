@@ -134,6 +134,25 @@ def test_media_intent():
     assert media_intent("Розкажи, чому музика на паузі буває корисною для концентрації уваги") is None
 
 
+def test_numbers_in_digits_and_words():
+    from agent.text import numbers_in
+    assert numbers_in("від дванадцяти до п'ятнадцяти градусів") == {12, 15}
+    assert numbers_in("+14°C, вітер 5 м/с") == {14, 5}
+    assert numbers_in("2 500 грн або дві тисячі п'ятсот") == {2500}
+    assert numbers_in("двадцять два дні") == {22}
+    assert numbers_in("3,5 кг") == {3.5}
+    assert numbers_in("Космос неймовірний.") == set()
+
+
+def test_self_disclosure():
+    from agent.text import self_disclosure
+    for s in ("Я люблю грати комп'ютерні ігри.", "Мого сина звати Андрій.", "У мене немає вдома гантелей.",
+              "Ну, я теж люблю каву без цукру.", "Я не люблю каву."):
+        assert self_disclosure(s), s
+    for s in ("Я хочу, щоб ти зробила сторінку.", "Ти любиш осінь?", "Відкрий дискорд.", "Я люблю?", "Мій."):
+        assert not self_disclosure(s), s
+
+
 def test_claims_short_action_by_form_not_by_word_list():
     from agent.text import claims_short_action as done
     for a in ("Продовжую.", "Зняла з паузи. Що далі?", "Вмикаю!", "Готово.", "Я вже відкриваю Steam.",

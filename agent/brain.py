@@ -8,7 +8,7 @@ import requests
 
 from .config import REPO_DIR, ollama_options
 from .text import (claims_action, claims_short_action, claims_work_in_progress, extract_prompt, fix_russisms,
-                   looks_ukrainian, promises_more, ukr_date, wants_other_language)
+                   looks_ukrainian, numbers_in, promises_more, self_disclosure, ukr_date, wants_other_language)
 from .tools import Tools
 
 VOICE_RULES = """
@@ -54,8 +54,17 @@ BACKGROUND_TOOLS = {"make_page", "edit_page", "set_reminder"}
 # Так модель не може «зробити» те, чого інструмент не зробив, у будь-якій темі, а не за списком фраз.
 RECEIPT_TOOLS = {"open_app", "close_app", "media", "play_music", "open_website", "search_on_site", "open_page",
                  "make_page", "edit_page", "page_status", "set_reminder", "window", "click_on_screen", "open_folder",
-                 "remember", "shutdown_timer", "cancel_shutdown", "sleep_pc", "lock_pc", "take_screenshot",
-                 "mark_game", "notes_add", "organize_downloads"}
+                 "remember", "forget_fact", "shutdown_timer", "cancel_shutdown", "sleep_pc", "lock_pc",
+                 "take_screenshot", "mark_game", "notes_add", "organize_downloads"}
+# Інструменти, що приносять ФАКТИ: після них кожне число у відповіді має знайтися в їхніх результатах
+INFO_TOOLS = {"web_search", "read_page", "wiki", "look_at_screen", "list_folder", "find_file", "recall",
+              "mail_unread", "money_balance", "money_spending", "notes_search"}
+NUDGE_FACTS = ("[Системна перевірка, Ігор цього не писав і не бачить — не відповідай на неї, не вибачайся, не згадуй її.] "
+               "У твоїй відповіді є числа, яких немає в результатах інструментів: {nums}. Не вигадуй. Відповідай лише "
+               "тим, що справді є в результатах; якщо потрібного там немає — коротко й чесно скажи, що точних даних "
+               "не знайшла.")
+NO_DATA_ANSWER = "Точних даних про це я не знайшла."
+_MEMORY_CLAIM = re.compile(r"\b(?:запам'ятал\w*|записал\w*|занотувал\w*|запам'ятаю|запишу)\b", re.IGNORECASE)
 
 
 def receipt_of(name: str, result) -> str | None:
@@ -127,6 +136,7 @@ class SentenceStream:
         self.background = False
         self.hold_all = False
         self.receipts_given = False
+        self.check_numbers = False                          # після пошуку числа спершу звіряємо з результатами
 
     def receipt(self, text: str):
         """Квитанція про виконану дію — звучить одразу, ще поки модель думає над рештою відповіді."""
@@ -150,6 +160,8 @@ class SentenceStream:
             return True                                     # «ще пишу сторінку», а нічого не пишеться — не озвучуємо
         if not self.used_tools and claims_short_action(sent):
             return True                                     # «Продовжую.» без жодної дії — спершу перевірка
+        if self.check_numbers and any(n > 2 for n in numbers_in(sent)):
+            return True                                     # «12–15 градусів» — спершу звірити з результатами пошуку
         return (len(sent.split()) >= 4 and not looks_ukrainian(sent)
                 and not wants_other_language(self.user_text))
 
@@ -207,6 +219,8 @@ class Brain:
         self.deep = False
         self._mem_cache: list[str] = []
         self._mem_time = 0.0
+        self.remember_in_background = True    # запис у пам'ять не гальмує відповідь (набір перевірок вимикає)
+        self.auto_memories: list[str] = []    # що запам'ятала сама на останнє питання (для журналу)
 
     def _memories(self) -> list[str]:
         # Пам'ять про тебе змінюється рідко — тримаємо копію 2 хв, щоб не чекати Open WebUI щоразу.
@@ -418,6 +432,39 @@ class Brain:
         text = fix_gender(strip_unasked_time(user_text, text))
         return fix_russisms(fix_vocative(text, self.cfg["user"])).strip()
 
+    def _ungrounded(self, answer: str, user_text: str, sources: list[str]) -> list[float]:
+        """Числа у відповіді, яких нема ні в результатах інструментів, ні в питанні, ні в поточній даті й часі —
+        найімовірніше вигадані («завтра 12–15 градусів», коли пошук погоди не приніс). 0–2 не рахуємо:
+        «одна з найкращих», «пару слів» — це не факти."""
+        now = datetime.now()
+        known = numbers_in(" ".join(map(str, sources)) + f" {user_text} {now:%H:%M} {now.day} {now.month} {now.year}")
+        for m in self.history[-6:]:
+            known |= numbers_in(str(m.get("content", "")))
+        return sorted(n for n in numbers_in(answer) if n > 2 and not any(abs(n - k) <= 0.5 for k in known))
+
+    def _auto_remember(self, user_text: str) -> str | None:
+        """Розповів про себе («Я люблю ігри», «Мого сина звати Андрій») — запам'ятовує код, твоїми словами, ще ДО
+        відповіді моделі (тоді її «запам'ятала» — правда). Модель тут була надто обережна: з 3 записів за тиждень
+        жодного з розмови, а «Запам'ятала» казала й без запису."""
+        fact = self_disclosure(user_text)
+        if not fact or any(fact.lower() in m.lower() for m in self._memories()):
+            return None                                  # не факт про мене, або вже знає
+        note = f"{self.cfg.get('user', {}).get('name', 'Користувач')} про себе: «{fact}»"
+        self.auto_memories.append(note)
+
+        def save():
+            try:
+                self.tools.call("remember", {"fact": note})
+                self._mem_time = 0.0
+            except Exception:  # noqa: BLE001
+                pass
+        if self.remember_in_background:
+            import threading
+            threading.Thread(target=save, daemon=True).start()
+        else:
+            save()
+        return fact
+
     def ask(self, user_text: str, on_tool=None, on_sentence=None, cancel=None) -> str:
         if time.time() - self.last_turn > HISTORY_IDLE_RESET_S:
             self.history = []
@@ -427,13 +474,19 @@ class Brain:
         self.history.append({"role": "user", "content": user_text})
         # Час — у поточне питання, а не в інструкції: так незмінні інструкції Ollama бере з кешу.
         bg = self.tools.background_status()
+        self.auto_memories = []
+        remembered = self._auto_remember(user_text)     # до відповіді: тоді її «запам'ятала» — правда
+        mem = (f" Факт про мене вже записано в пам'ять: «{remembered}» — можеш коротко сказати, що запам'ятала, "
+               "і говорити далі." if remembered else "")
         now = {"role": "user", "content": f"{user_text}\n\n(Службова довідка, не для озвучення: зараз "
                                           f"{datetime.now():%H:%M}. Називай час лише тоді, коли я про нього питаю "
-                                          f"— тоді одразу, без інструментів.{bg})"}
+                                          f"— тоді одразу, без інструментів.{bg}{mem})"}
         messages = [{"role": "system", "content": self._system_prompt()}, *self.history[:-1], now]
 
         used_tools, nudged, lang_nudged, background = False, False, False, False
         receipts: list[str] = []                         # що вже зроблено — словами самих інструментів
+        info_results: list[str] = []                     # що принесли пошук, Вікіпедія, щоденник… — джерела фактів
+        facts_nudged = False
         # «Подумай гарненько…» — Gemma спершу міркує сама з собою (повільніше, 10–30 с, але розумніше)
         self.deep = bool(DEEP.search(user_text))
         self.last_calls, self.last_results = [], []     # для навичок: що саме зробила на це прохання
@@ -456,7 +509,9 @@ class Brain:
                 continue
             idle_claim = bool(not calls and content and claims_work_in_progress(content)
                               and not background and not self.tools.page_busy())
-            fake_done = bool(not used_tools and (claims_action(content) or claims_short_action(content)))
+            # «запам'ятала», коли факт справді записав код, — правда; решту звітів про дії без інструмента — перевіряємо
+            claim_text = _MEMORY_CLAIM.sub("", content) if self.auto_memories else content
+            fake_done = bool(not used_tools and (claims_action(claim_text) or claims_short_action(claim_text)))
             if not calls and not nudged and (fake_done or (promises_more(content) and not background) or idle_claim):
                 # Каже «поставила на паузу» без інструмента, або обіцяє «зараз загляну» і завершує —
                 # після відповіді нічого не станеться. Просимо зробити зараз або чесно сказати, що не вміє.
@@ -484,6 +539,28 @@ class Brain:
                 self.history.append({"role": "assistant", "content": honest})
                 self.last_exchange = (user_text, answer)
                 return answer
+            bad = self._ungrounded(content, user_text, info_results) if (not calls and info_results) else []
+            if bad and not facts_nudged:
+                # після пошуку назвала числа, яких у результатах нема — найімовірніше вигадала
+                facts_nudged = True
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": NUDGE_FACTS.format(
+                    nums=", ".join(f"{n:g}" for n in bad))})
+                if stream:
+                    stream.hold_all = True       # нову відповідь спершу перевіряємо, потім озвучуємо
+                continue
+            if bad:
+                # і вдруге вигадує — лишаємо речення без вигаданих чисел і чесно кажемо, що даних нема
+                keep = [x for x in re.split(r"(?<=[.!?…])\s+", content.strip())
+                        if x and not any(abs(n - b) <= 0.5 for n in numbers_in(x) for b in bad)]
+                msg = {"content": " ".join(keep + [NO_DATA_ANSWER])}
+                if stream:
+                    stream.buf, stream.held, stream.hold, stream.hold_all = "", [], False, False
+                    for x in keep + [NO_DATA_ANSWER]:
+                        x = self.polish(user_text, x) if x != NO_DATA_ANSWER else x
+                        if x:
+                            stream.spoken.append(x)
+                            stream.emit(x)
             if not calls:
                 text_ = (msg.get("content") or "").strip()
                 if getattr(self, "cut_short", False):          # уперлася в ліміт — без обірваного речення
@@ -511,7 +588,10 @@ class Brain:
                 fn = c["function"]
                 if on_tool:
                     on_tool(fn["name"], fn.get("arguments") or {})
-                result = self.tools.call(fn["name"], fn.get("arguments") or {})
+                if fn["name"] == "remember" and self.auto_memories:
+                    result = "Записано в пам'ять."             # уже записав код — другий такий самий запис не потрібен
+                else:
+                    result = self.tools.call(fn["name"], fn.get("arguments") or {})
                 self.last_calls.append({"name": fn["name"], "arguments": fn.get("arguments") or {}})
                 self.last_results.append(result)
                 rc = receipt_of(fn["name"], result)
@@ -519,7 +599,11 @@ class Brain:
                     receipts.append(rc)
                     if stream:
                         stream.receipt(rc)       # «Відкрила Discord.» звучить одразу, поки модель думає далі
-                if fn["name"] == "remember":
-                    self._mem_time = 0.0          # новий факт — наступного разу перечитати пам'ять
+                if fn["name"] in INFO_TOOLS:
+                    info_results.append(str(result))
+                    if stream:
+                        stream.check_numbers = True
+                if fn["name"] in ("remember", "forget_fact"):
+                    self._mem_time = 0.0          # змінилась пам'ять — наступного разу перечитати
                 messages.append({"role": "tool", "tool_name": fn["name"], "content": result + STYLE_REMINDER})
         return "Ой, я заплуталась з інструментами. Спитай, будь ласка, ще раз."

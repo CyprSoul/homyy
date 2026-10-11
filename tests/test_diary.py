@@ -26,3 +26,26 @@ def test_summarize_writes_diary(monkeypatch, tmp_path):
     assert "самвидав" in b.diary.prompt_block()
     assert b.summarize(talk[:2]) is None                     # одне питання — не розмова
     assert "Ігор: Що таке самвидав?" in dialog_text(talk)
+
+
+def test_diary_understands_yesterday_and_last_time(tmp_path):
+    import time
+    from datetime import datetime, timedelta
+    d = Diary(tmp_path / "diary.jsonl")
+    noon = datetime.now().replace(hour=12)
+    d.add("Говорили про тренування вдома без гантелей.", when=(noon - timedelta(days=1)).timestamp())
+    d.add("Обговорили поїздку до Львова.", when=(noon - timedelta(days=3)).timestamp())
+    d.add("Сьогодні слухали музику.", when=time.time())
+    yesterday = d.search("Ти пам'ятаєш, про що ми з тобою вчора говорили?")
+    assert len(yesterday) == 1 and "тренування" in yesterday[0]          # раніше «вчора» шукалось як слово
+    assert "Львова" in d.search("що ми вирішили про Львів")[0]
+    assert len(d.search("про що ми говорили минулого разу")) == 3
+
+
+def test_recall_question_is_a_quick_command():
+    from agent.router import route
+    r = route("Ти пам'ятаєш, про що ми з тобою вчора говорили?")
+    assert r.tool == "recall" and "щоденнику" in r.summarize
+    assert route("Що ми вирішили щодо тренувань?").tool == "recall"
+    reminder = route("Нагадай мені через десять хвилин випити воду")
+    assert reminder is None or reminder.tool != "recall"

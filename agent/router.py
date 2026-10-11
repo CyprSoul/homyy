@@ -17,10 +17,16 @@ class Route:
     tool: str = ""
     args: dict = field(default_factory=dict)
     skill: dict | None = None
-    summarize: bool = False    # list_folder: вміст папки потім коротко переказує Gemma
+    summarize: str = ""        # результат (вміст папки, щоденник) потім коротко переказує Gemma — з цією приміткою
 
 
 _FORGET_SKILL = re.compile(r"^(?:хомі,?\s*)?(?:забудь|розучись),? як", re.I)
+# «Про що ми вчора говорили?», «Що ми вирішили щодо тренувань?» — модель тут вигадувала спогади або «не розуміла»
+_RECALL = re.compile(r"\bщо ми (?:з тобою )?(?:[\w']+\s+){0,2}(?:говорили|обговорювали|розмовляли|вирішили)\b", re.I)
+# «Забудь, що я люблю каву», «Забудь про каву» — стерти факт про мене (модель тут новий інструмент не кликала).
+# «Забудь урок/правило про …» сюди не потрапляє: його раніше обробляють уроки (lessons.forget_request).
+_FORGET_FACT = re.compile(r"^(?:хомі,?\s*)?(?:забудь|видали з пам'яті|викресли з пам'яті)\W+"
+                          r"(?:що|про те,? що|про)\s+(.+?)[.!]*$", re.I)
 
 
 def route(text: str, awaiting: tuple | None = None, page_task: dict | None = None, skills=None,
@@ -39,7 +45,8 @@ def route(text: str, awaiting: tuple | None = None, page_task: dict | None = Non
         return Route("tool", "window", {"action": window[0], "name": window[1]})
     folder = folder_intent(text)               # «що в папці Games», «відкрий папку …»
     if folder:
-        return Route("tool", folder[0], {"name": folder[1]}, summarize=folder[0] == "list_folder")
+        return Route("tool", folder[0], {"name": folder[1]},
+                     summarize="Ось що в папці — коротко перекажи голосом:" if folder[0] == "list_folder" else "")
     if wants_selection(text):                  # «переклади виділене» — беремо текст, а не знімок екрана
         return Route("selection")
     target = click_intent(text)                # «натисни на …»
@@ -54,6 +61,12 @@ def route(text: str, awaiting: tuple | None = None, page_task: dict | None = Non
         return Route("tool", "make_page", {"name": page_task["name"], "request": page_task["request"]})
     if _FORGET_SKILL.match(text.strip()):
         return Route("forget_skill")
+    fact = _FORGET_FACT.match(text.strip().replace("’", "'"))
+    if fact:
+        return Route("tool", "forget_fact", {"query": fact.group(1)})
+    if _RECALL.search(text.replace("’", "'")):         # «про що ми вчора говорили?» — зі щоденника, а не з голови
+        return Route("tool", "recall", {"query": text},
+                     summarize="Ось що в щоденнику наших розмов — коротко перекажи голосом лише це, нічого не додавай:")
     if skills is not None:
         skill = skills.match(text)             # вивчена навичка: ті самі кроки одразу
         if skill:

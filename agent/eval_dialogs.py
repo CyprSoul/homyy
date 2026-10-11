@@ -28,7 +28,7 @@ RESULTS = REPO_DIR / "evals" / "results"
 PAGE = "тренування_ігоря"
 # дії, після яких «зробила» — правда (інші інструменти лише щось дізнаються)
 ACTION_TOOLS = {"open_app", "close_app", "media", "play_music", "open_website", "search_on_site", "open_page",
-                "make_page", "edit_page", "set_reminder", "window", "click_on_screen", "open_folder", "remember",
+                "make_page", "edit_page", "set_reminder", "window", "click_on_screen", "open_folder", "remember", "forget_fact",
                 "shutdown_timer", "cancel_shutdown", "sleep_pc", "lock_pc", "take_screenshot", "notes_add",
                 "organize_downloads", "mark_game"}
 CONFIRM = {"close_app", "shutdown_timer", "sleep_pc"}
@@ -55,6 +55,7 @@ class FakeTools(Tools):
                             "Зараз нічого не пишу." + (f" Готова сторінка «{names[0]}» — можу відкрити." if names else "")))
         self._task = ({"name": PAGE, "request": "трекер тренувань з календарем", "t": time.time() - 600}
                       if state.get("page_task") else None)
+        self._overrides = dict(state.get("tool_results", {}))
 
     def last_page_task(self):
         return self._task
@@ -69,6 +70,8 @@ class FakeTools(Tools):
             return (f"ПОТРІБНЕ ПІДТВЕРДЖЕННЯ. Нічого ще не зроблено. Коротко спитай користувача: «{what}?» "
                     "Якщо він скаже «так», виклич цей самий інструмент ще раз з confirmed=true.")
         self.awaiting = None
+        if name in self._overrides:                     # що «повернув» інструмент саме в цій перевірці
+            return self._overrides[name]
         if name in PURE:
             return super().call(name, args)
         a = args
@@ -95,7 +98,8 @@ class FakeTools(Tools):
             "list_folder": lambda: (f"У Робочий стіл\\{a.get('name', 'папка')}: папок 0, файлів 3. Файли: "
                                     "World of Tanks EU.lnk, Counter-Strike 2.url, Path of Exile 2.url"),
             "open_folder": lambda: f"Відкрила папку {a.get('name', '')}.",
-            "remember": lambda: f"Запам'ятала: {a.get('fact', '')}.",
+            "remember": lambda: "Записано в пам'ять.",
+            "forget_fact": lambda: f"Забула: Ігор про себе: «Я люблю {a.get('query', '')}»",
             "window": lambda: f"Готово: {a.get('action', '')} {a.get('name', '')}.".replace("  ", " "),
             "click_on_screen": lambda: f"Натиснула «{a.get('text', '')}».",
             "shutdown_timer": lambda: f"Готово: комп'ютер вимкнеться через {a.get('minutes', 0)} хв.",
@@ -190,6 +194,23 @@ def run_case(case: dict, cfg: dict, brain_cls, reflex_only: bool) -> dict:
     awaiting = tuple(state["awaiting"]) if state.get("awaiting") else None
     tools.pending = (awaiting[0], None) if awaiting else None
     tools.last_user_text = case["say"]
+    def make_brain():
+        brain = brain_cls(cfg)
+        brain.tools = tools
+        brain._memories = lambda: []                  # без особистої пам'яті з Open WebUI — перевірки відтворювані
+        brain.diary = types.SimpleNamespace(prompt_block=lambda: "")          # щоденник і уроки щодня інші —
+        brain.lessons = types.SimpleNamespace(prompt_block=lambda: "")        # з ними результати не порівняти
+        brain.history = [{"role": r, "content": t} for r, t in case.get("history", [])]
+        brain.remember_in_background = False          # щоб перевірка бачила, що запам'ятала сама
+        brain.last_turn = time.time()
+        return brain
+
+    def ask(text):
+        try:
+            return make_brain().ask(text)
+        except Exception as ex:  # noqa: BLE001
+            return f"ПОМИЛКА: {ex}"
+
     t0 = time.time()
     rt = None if is_noise(case["say"]) else route(case["say"], awaiting, tools.last_page_task(), None)
     if is_noise(case["say"]):                         # як у main: шум Хомі пропускає мовчки
@@ -198,6 +219,9 @@ def run_case(case: dict, cfg: dict, brain_cls, reflex_only: bool) -> dict:
         routed = "reflex"
         if rt.kind in ("tool", "confirm"):
             answer = tools.call(rt.tool, rt.args)
+            # як у main: вміст папки чи щоденника коротко переказує модель
+            if rt.summarize and not reflex_only and not answer.startswith(("Не знайшла", "У щоденнику нічого")):
+                answer = ask(f"{case['say']}\n\n({rt.summarize})\n{answer}")
         elif rt.kind == "decline":
             answer = "Добре, не роблю."
         else:
@@ -206,17 +230,7 @@ def run_case(case: dict, cfg: dict, brain_cls, reflex_only: bool) -> dict:
         return {"id": case["id"], "skipped": True}
     else:
         routed = "brain"
-        brain = brain_cls(cfg)
-        brain.tools = tools
-        brain._memories = lambda: []                  # без особистої пам'яті з Open WebUI — перевірки відтворювані
-        brain.diary = types.SimpleNamespace(prompt_block=lambda: "")          # щоденник і уроки щодня інші —
-        brain.lessons = types.SimpleNamespace(prompt_block=lambda: "")        # з ними результати не порівняти
-        brain.history = [{"role": r, "content": t} for r, t in case.get("history", [])]
-        brain.last_turn = time.time()
-        try:
-            answer = brain.ask(case["say"])
-        except Exception as ex:  # noqa: BLE001
-            answer = f"ПОМИЛКА: {ex}"
+        answer = ask(case["say"])
     dt = time.time() - t0
     problems = check(case, routed, tools.calls, answer, tools)
     return {"id": case["id"], "say": case["say"], "route": routed, "tools": tools.calls, "answer": answer,
