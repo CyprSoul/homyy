@@ -57,6 +57,23 @@ def test_whisper_wake_model_is_warmed_up_at_start(monkeypatch):
     assert calls == [16000]
 
 
+def test_wake_decoding_is_bounded(monkeypatch):
+    # без temperature=0 і ліміту токенів Whisper на частині записів «Хооміі» думав 20–35 с, і Хомі була глуха
+    seen = []
+
+    class Recorder:
+        def transcribe(self, audio, **kw):
+            seen.append(kw)
+            return iter([types.SimpleNamespace(text=" Хомі.")]), None
+
+    monkeypatch.setattr(stt_mod, "WhisperModel", lambda *a, **k: Recorder())
+    monkeypatch.setattr(stt_mod.STT, "_load_onnx", lambda self, eng: (FakeOnnx(""), {}))
+    s = stt_mod.STT({"stt": dict(CFG["stt"], engine="canary")})
+    seen.clear()
+    assert s.wake(np.zeros(16000, dtype=np.int16)) == "Хомі."
+    assert seen[0]["temperature"] == 0.0 and seen[0]["max_new_tokens"] <= 16 and seen[0]["without_timestamps"]
+
+
 def test_command_uses_canary_with_ukrainian(monkeypatch):
     s, fake = make(monkeypatch, " Привіт, Хомі. ")
     assert s.gpu_model is None and s.cpu_model is None          # Whisper для команд не вантажиться

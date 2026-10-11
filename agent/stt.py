@@ -164,9 +164,12 @@ class STT:
                 return ""
             with self.lock:
                 return str(self.onnx.recognize(self._f32(pcm), sample_rate=16000, **self.onnx_opts)).strip()
+        # temperature=0 і мало токенів: без цього на ~10% записів «Хооміі» Whisper, не будучи певним, повторював
+        # декодування на вищих температурах і думав 20–35 с (Хомі за цей час глуха); тепер найдовше ≈1.2 с
         segs, _ = self.wake_model.transcribe(self._f32(pcm), language=self.language, beam_size=1,
                                              condition_on_previous_text=False,
-                                             initial_prompt="Хоооумммііі. Хомі.")
+                                             initial_prompt="Хоооумммііі. Хомі.",
+                                             temperature=0.0, max_new_tokens=12, without_timestamps=True)
         return " ".join(s.text for s in segs).strip()
 
     def command(self, pcm: np.ndarray, fallback: bool = True) -> str:
