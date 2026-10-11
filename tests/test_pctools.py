@@ -12,7 +12,14 @@ def test_is_yes():
     assert not is_yes("Ні") and not is_yes("не треба") and not is_yes("Так, але спершу розкажи мені про погоду завтра")
 
 
-def test_confirmation_is_enforced_by_code():
+def test_suite_never_runs_real_system_commands(system_calls):
+    # запобіжник: якщо хтось прибере заглушку з conftest, цей тест (з безпечним /a) одразу покаже це
+    from agent import pctools
+    pctools._run(["shutdown", "/a"])
+    assert system_calls == [["shutdown", "/a"]]
+
+
+def test_confirmation_is_enforced_by_code(system_calls):
     t = Tools(CFG)
     t.last_user_text = "Вимкни комп'ютер через годину"
     # модель «одразу» ставить confirmed=true — код однаково спершу перепитує
@@ -20,12 +27,15 @@ def test_confirmation_is_enforced_by_code():
     t.last_user_text = "ні"
     assert "ПОТРІБНЕ ПІДТВЕРДЖЕННЯ" in t.call("shutdown_timer", {"minutes": 60, "confirmed": True})
     t.call("shutdown_timer", {"minutes": 60})
+    assert not any(c[0] == "shutdown" for c in system_calls)           # без «так» нічого не запущено
     t.last_user_text = "так"
     assert "вимкнеться через 60 хв" in t.call("shutdown_timer", {"minutes": 60, "confirmed": True})
+    assert system_calls == [["shutdown", "/s", "/t", "3600"]]
     # інші параметри, ніж ті, що підтверджували, — знову перепитати
     t.call("shutdown_timer", {"minutes": 60})
     t.last_user_text = "так"
     assert "ПОТРІБНЕ ПІДТВЕРДЖЕННЯ" in t.call("shutdown_timer", {"minutes": 5, "confirmed": True})
+    assert system_calls == [["shutdown", "/s", "/t", "3600"]]          # лише одне вимкнення
 
 
 def test_downloads_plan_moves_without_overwrite(tmp_path: Path):
@@ -83,6 +93,7 @@ def test_list_folder(tmp_path, monkeypatch):
     (games / "cs2.lnk").write_text("x")
     monkeypatch.setattr(pc, "HOME", tmp_path)
     monkeypatch.setattr(pc, "SEARCH_DIRS", ["Desktop"])
+    monkeypatch.setattr(pc, "known_folders", lambda: [tmp_path / "Desktop"])   # не справжній робочий стіл
     t = Tools({"apps": {}, "search": {"url": "http://x"}, "openwebui": {}})
     out = t.call("list_folder", {"name": "гейм"})
     assert "Не знайшла" in out or "World of Tanks" in out
